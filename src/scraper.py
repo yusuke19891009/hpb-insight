@@ -13,6 +13,8 @@ class HotPepperScraper:
         # -----------------------------
         # URL整形
         # -----------------------------
+        url = url.strip()
+
         if not url.endswith("/"):
             url += "/"
 
@@ -28,12 +30,19 @@ class HotPepperScraper:
         output_dir = Path("output/html")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # ============================================
-        # 前回HTML削除（最新のみ保持）
-        # ============================================
-
+        # -----------------------------
+        # HTML削除（最新のみ保持）
+        # -----------------------------
         for file in output_dir.glob("*.html"):
-            file.unlink()
+            try:
+                file.unlink()
+            except Exception:
+                pass
+
+        print("")
+        print("=" * 60)
+        print("スクレイピング開始")
+        print("=" * 60)
 
         with sync_playwright() as p:
 
@@ -43,19 +52,17 @@ class HotPepperScraper:
 
             page = browser.new_page()
 
-            # ============================================
-            # TOPページ取得
-            # ============================================
-
+            # -----------------------------
+            # TOPページ
+            # -----------------------------
             print("")
-            print("=" * 60)
-            print("TOPページ取得")
+            print("【TOPページ取得】")
             print(top_url)
-            print("=" * 60)
 
             page.goto(
                 top_url,
-                wait_until="networkidle"
+                wait_until="networkidle",
+                timeout=60000
             )
 
             top_html = page.content()
@@ -67,10 +74,9 @@ class HotPepperScraper:
 
             shop.name = parser.parse_shop_name(top_html)
 
-            # ============================================
-            # クーポンページ取得
-            # ============================================
-
+            # -----------------------------
+            # クーポンページ
+            # -----------------------------
             page_no = 1
 
             while True:
@@ -81,14 +87,14 @@ class HotPepperScraper:
                     page_url = f"{coupon_url}PN{page_no}.html"
 
                 print("")
-                print("=" * 60)
+                print("-" * 60)
                 print(f"Page {page_no}")
                 print(page_url)
-                print("=" * 60)
 
                 page.goto(
                     page_url,
-                    wait_until="networkidle"
+                    wait_until="networkidle",
+                    timeout=60000
                 )
 
                 html = page.content()
@@ -100,10 +106,11 @@ class HotPepperScraper:
 
                 coupons = parser.parse(html)
 
-                print(f"取得件数 : {len(coupons)}")
+                count = len(coupons)
 
-                if len(coupons) == 0:
+                print(f"取得件数：{count}件")
 
+                if count == 0:
                     print("最終ページ到達")
                     break
 
@@ -113,19 +120,18 @@ class HotPepperScraper:
 
             browser.close()
 
-        # ============================================
-        # 掲載順振り直し
-        # ============================================
-
+        # -----------------------------
+        # 掲載順再設定
+        # -----------------------------
         for i, coupon in enumerate(shop.coupons, start=1):
-
             coupon.order = i
 
         print("")
         print("=" * 60)
-        print("取得完了")
-        print(f"店舗名 : {shop.name}")
-        print(f"取得件数 : {len(shop.coupons)}")
+        print("スクレイピング完了")
+        print("=" * 60)
+        print(f"店舗名：{shop.name}")
+        print(f"取得件数：{len(shop.coupons)}件")
         print("=" * 60)
 
         return shop
