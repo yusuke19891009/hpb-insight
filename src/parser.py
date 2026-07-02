@@ -5,114 +5,135 @@ from models import Coupon
 
 class CouponParser:
 
+    def parse_shop_name(self, html: str) -> str:
+        """店舗名を取得"""
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        h1 = soup.select_one("h1")
+
+        if h1:
+            name = h1.get_text(strip=True)
+
+            # 「○○のクーポン・メニュー」→「○○」
+            name = name.replace("のクーポン・メニュー", "")
+
+            return name
+
+        return "Unknown"
+
     def parse(self, html: str):
+        """クーポン一覧取得"""
 
         soup = BeautifulSoup(html, "html.parser")
 
         coupons = []
 
+        cards = soup.select("td.bgWhite.p12.vaT.pr")
+
         order = 1
 
-        # クーポン1件 = <tr>
-        rows = soup.select("tr")
-
-        for row in rows:
-
-            # -----------------------------
-            # 新規・再来・全員
-            # -----------------------------
-            label = row.select_one("td[class*=couponLabel]")
-
-            if label is None:
-                continue
+        for card in cards:
 
             coupon = Coupon()
 
             coupon.order = order
+            order += 1
 
-            coupon.target = (
-                label.get_text(" ", strip=True)
-                .replace("\n", "")
-                .replace(" ", "")
+            # -------------------------
+            # 対象（新規・再来・全員）
+            # -------------------------
+
+            label = card.find_previous("td", class_="couponLabelCT02")
+
+            if label:
+
+                target = label.get_text(" ", strip=True)
+                target = target.replace("\n", "").replace(" ", "")
+
+                if "新規" in target:
+                    coupon.target = "新規"
+
+                elif "再来" in target:
+                    coupon.target = "再来"
+
+                elif "全員" in target:
+                    coupon.target = "全員"
+
+            # -------------------------
+            # カテゴリ
+            # -------------------------
+
+            icons = card.select(".couponMenuIcon")
+
+            coupon.category = " + ".join(
+                icon.get_text(strip=True)
+                for icon in icons
             )
 
-            # -----------------------------
-            # クーポン情報
-            # -----------------------------
-            body = row.select_one("td.bgWhite")
+            # -------------------------
+            # タイトル
+            # -------------------------
 
-            if body is None:
-                continue
-
-            # -----------------------------
-            # カテゴリ
-            # -----------------------------
-            icons = body.select("li.couponMenuIcon")
-
-            categories = []
-
-            for icon in icons:
-                text = icon.get_text(strip=True)
-
-                if text:
-                    categories.append(text)
-
-            coupon.category = " + ".join(categories)
-
-            # -----------------------------
-            # クーポン名
-            # -----------------------------
-            title = body.select_one("p.couponMenuName")
+            title = card.select_one(".couponMenuName")
 
             if title:
                 coupon.title = title.get_text(strip=True)
 
-            # -----------------------------
+            # -------------------------
             # 説明
-            # -----------------------------
-            description = body.select_one("p.couponDescription")
+            # -------------------------
 
-            if description:
-                coupon.description = description.get_text(" ", strip=True)
+            desc = card.select_one(".couponDescription")
 
-            # -----------------------------
+            if desc:
+                coupon.description = desc.get_text(" ", strip=True)
+
+            # -------------------------
             # 価格
-            # -----------------------------
-            price = body.select_one("p.couponMenuPrice")
+            # -------------------------
+
+            price = card.select_one(".couponMenuPrice")
 
             if price:
-
-                text = (
-                    price.get_text()
+                coupon.price = (
+                    price.get_text(strip=True)
                     .replace("¥", "")
                     .replace(",", "")
-                    .strip()
                 )
 
-                try:
-                    coupon.price = int(text)
-                except:
-                    coupon.price = 0
-
-            # -----------------------------
+            # -------------------------
             # 条件
-            # -----------------------------
-            dts = body.select("dl dt")
-            dds = body.select("dl dd")
+            # -------------------------
 
-            conditions = []
+            dl = card.select_one(".couponConditionsList")
 
-            for dt, dd in zip(dts, dds):
+            if dl:
 
-                key = dt.get_text(strip=True)
-                value = dd.get_text(" ", strip=True)
+                items = []
 
-                conditions.append(f"{key}{value}")
+                dts = dl.find_all("dt")
+                dds = dl.find_all("dd")
 
-            coupon.conditions = " / ".join(conditions)
+                for dt, dd in zip(dts, dds):
+
+                    key = dt.get_text(strip=True)
+                    value = dd.get_text(strip=True)
+
+                    items.append(f"{key}{value}")
+
+                    if key.startswith("来店日条件"):
+                        coupon.conditions = value
+
+                    elif key.startswith("対象スタイリスト"):
+                        coupon.stylist = value
+
+                    elif key.startswith("その他条件"):
+                        coupon.other = value
+
+                # 表示用
+                coupon.conditions = " / ".join(items)
 
             coupons.append(coupon)
-
-            order += 1
 
         return coupons

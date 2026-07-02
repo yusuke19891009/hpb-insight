@@ -1,14 +1,20 @@
+from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
+from models import Shop
 from parser import CouponParser
 
 
 class HotPepperScraper:
 
-    def scrape(self, url: str):
+    def scrape(self, url: str) -> Shop:
 
-        # TOPページURL → クーポンページURL
-        coupon_url = url.rstrip("/") + "/coupon/"
+        # クーポンURLへ変換
+        if not url.endswith("/"):
+            url += "/"
+
+        coupon_url = url + "coupon/"
 
         print("")
         print("=" * 60)
@@ -31,37 +37,31 @@ class HotPepperScraper:
                 wait_until="networkidle"
             )
 
-            # JavaScript描画待ち
-            page.wait_for_timeout(3000)
-
             html = page.content()
-
-            # デバッグ用HTML保存
-            with open(
-                "output/page.html",
-                "w",
-                encoding="utf-8"
-            ) as f:
-                f.write(html)
 
             browser.close()
 
+        # HTML保存
+        output_dir = Path("output/html")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        html_path = output_dir / "page.html"
+
+        with open(
+            html_path,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            f.write(html)
+
+        # 店舗名取得
         parser = CouponParser()
 
-        coupons = parser.parse(html)
+        shop = Shop()
+        shop.url = coupon_url
 
-        print("")
-        print("=" * 60)
-        print("取得結果")
-        print("=" * 60)
+        shop.name = parser.parse_shop_name(html)
+        shop.coupons = parser.parse(html)
 
-        for coupon in coupons:
-
-            print(f"[{coupon.order}] {coupon.target}")
-            print(coupon.category)
-            print(coupon.title)
-            print(coupon.price)
-            print(coupon.conditions)
-            print("-" * 60)
-
-        return coupons
+        return shop
