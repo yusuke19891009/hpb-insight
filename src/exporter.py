@@ -1,6 +1,6 @@
-from pathlib import Path
-from datetime import datetime
 import csv
+from datetime import datetime
+from pathlib import Path
 
 from models import Shop
 
@@ -9,13 +9,23 @@ class CouponExporter:
 
     def export_csv(self, shop: Shop):
 
+        # -----------------------------
+        # 出力フォルダ
+        # -----------------------------
         output_dir = Path("output/csv")
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
+        # -----------------------------
+        # ファイル名
+        # -----------------------------
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         safe_name = (
-            shop.name.replace("/", "／")
+            shop.name
+            .replace("/", "／")
             .replace("\\", "＼")
             .replace(":", "：")
             .replace("*", "")
@@ -26,8 +36,14 @@ class CouponExporter:
             .replace("|", "")
         )
 
-        filename = output_dir / f"{safe_name}_{timestamp}.csv"
+        filename = (
+            output_dir /
+            f"{timestamp}_{safe_name}.csv"
+        )
 
+        # -----------------------------
+        # CSV出力
+        # -----------------------------
         with open(
             filename,
             "w",
@@ -54,22 +70,37 @@ class CouponExporter:
             for coupon in shop.coupons:
 
                 writer.writerow([
+
                     shop.name,
+
                     shop.url,
+
                     coupon.order,
+
                     coupon.target,
+
                     coupon.category,
+
                     coupon.title,
+
                     coupon.price,
+
                     coupon.conditions,
+
                     coupon.stylist,
+
                     coupon.other,
+
                     coupon.description
                 ])
 
+        # -----------------------------
+        # 完了ログ
+        # -----------------------------
         print("")
         print("=" * 60)
         print("CSV保存完了")
+        print("=" * 60)
         print(filename)
         print("=" * 60)
 
