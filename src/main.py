@@ -1,17 +1,17 @@
 from scraper import HotPepperScraper
-from exporter import CouponExporter
+from shop_service import ShopService
 
 
 def main():
 
     print("=" * 60)
     print("HPB Insight")
-    print("v1.0.0")
+    print("v1.1.0")
     print("=" * 60)
 
     url = input("HotPepperのURLを入力してください：").strip()
 
-    if url == "":
+    if not url:
         print("URLが入力されていません。")
         return
 
@@ -22,24 +22,23 @@ def main():
     try:
 
         scraper = HotPepperScraper()
-
         shop = scraper.scrape(url)
 
-        print("")
-        print("=" * 60)
-        print("取得結果")
-        print("=" * 60)
+        service = ShopService()
 
-        print(f"店舗名：{shop.name}")
-        print(f"取得件数：{len(shop.coupons)}件")
+        service.print_summary(shop)
 
-        exporter = CouponExporter()
-        exporter.export_csv(shop)
+        service.export(shop)
 
         print("")
         print("=" * 60)
-        print("完了！")
+        print("処理完了")
         print("=" * 60)
+
+    except KeyboardInterrupt:
+
+        print("")
+        print("処理を中断しました。")
 
     except Exception as e:
 
@@ -47,7 +46,7 @@ def main():
         print("=" * 60)
         print("エラーが発生しました")
         print("=" * 60)
-
+        print(type(e).__name__)
         print(e)
 
 
