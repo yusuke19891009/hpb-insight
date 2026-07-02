@@ -5,24 +5,36 @@ from dataclasses import dataclass, field
 class Coupon:
     """クーポン情報"""
 
-    order: int = 0                  # 掲載順
-    target: str = ""                # 新規 / 再来 / 全員
-    category: str = ""              # カット+カラー等
-    title: str = ""                 # クーポン名
-    description: str = ""           # クーポン内容
+    order: int = 0
+    target: str = ""
+    category: str = ""
+    title: str = ""
+    description: str = ""
 
-    regular_price: int = 0          # 通常価格（将来用）
-    price: str = ""                 # 販売価格
+    price: str = ""
 
-    conditions: str = ""            # 来店条件
-    stylist: str = ""               # 対象スタイリスト
-    other: str = ""                 # その他条件
+    conditions: str = ""
+    stylist: str = ""
+    other: str = ""
 
 
 @dataclass
 class Shop:
     """店舗情報"""
 
+    # 基本情報
     name: str = ""
     url: str = ""
+
+    # HPBトップ情報
+    review_score: float = 0.0
+    review_count: int = 0
+
+    blog_count: int = 0
+    style_count: int = 0
+    stylist_count: int = 0
+
+    coupon_count: int = 0
+    menu_count: int = 0
+
     coupons: list[Coupon] = field(default_factory=list)

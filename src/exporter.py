@@ -1,27 +1,32 @@
-import csv
 from pathlib import Path
 from datetime import datetime
+import csv
 
 from models import Shop
 
 
 class CouponExporter:
-    """クーポンCSV出力"""
 
     def export_csv(self, shop: Shop):
 
         output_dir = Path("output/csv")
-        output_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        shop_name = shop.name if shop.name else "shop"
+        safe_name = (
+            shop.name.replace("/", "／")
+            .replace("\\", "＼")
+            .replace(":", "：")
+            .replace("*", "")
+            .replace("?", "")
+            .replace('"', "")
+            .replace("<", "")
+            .replace(">", "")
+            .replace("|", "")
+        )
 
-        # Windowsで使えない文字を除去
-        for c in r'\/:*?"<>|':
-            shop_name = shop_name.replace(c, "")
-
-        filename = output_dir / f"{shop_name}_{now}.csv"
+        filename = output_dir / f"{safe_name}_{timestamp}.csv"
 
         with open(
             filename,
@@ -33,6 +38,8 @@ class CouponExporter:
             writer = csv.writer(f)
 
             writer.writerow([
+                "店舗名",
+                "店舗URL",
                 "掲載順",
                 "対象",
                 "カテゴリ",
@@ -46,32 +53,17 @@ class CouponExporter:
 
             for coupon in shop.coupons:
 
-                conditions = coupon.conditions
-
-                visit = ""
-                stylist = ""
-                other = ""
-
-                for item in conditions.split(" / "):
-
-                    if item.startswith("来店日条件"):
-                        visit = item.replace("来店日条件：", "")
-
-                    elif item.startswith("対象スタイリスト"):
-                        stylist = item.replace("対象スタイリスト：", "")
-
-                    elif item.startswith("その他条件"):
-                        other = item.replace("その他条件：", "")
-
                 writer.writerow([
+                    shop.name,
+                    shop.url,
                     coupon.order,
                     coupon.target,
                     coupon.category,
                     coupon.title,
                     coupon.price,
-                    visit,
-                    stylist,
-                    other,
+                    coupon.conditions,
+                    coupon.stylist,
+                    coupon.other,
                     coupon.description
                 ])
 
