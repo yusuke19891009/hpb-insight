@@ -12,7 +12,7 @@ class Coupon:
     description: str = ""           # クーポン内容
 
     regular_price: int = 0          # 通常価格（将来用）
-    price: int = 0                  # 販売価格
+    price: str = ""                 # 販売価格
 
     conditions: str = ""            # 来店条件
     stylist: str = ""               # 対象スタイリスト
