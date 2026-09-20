@@ -6,17 +6,18 @@ from typing import Any, Dict, List, Optional
 
 class PricingAnalyzer:
     """
-    クーポン価格の市場比較・価格分析を行うクラス。
+    HotPepper Beauty クーポン価格の市場比較分析を行うクラス。
 
-    v1.8
-    - 比較対象店舗ごとにカテゴリ中央値を算出
+    v1.8.0
     - 店舗別中央値を同じ重みで比較
     - カテゴリ名を正規化して比較
-    - 「その他」を含むカテゴリの比較精度を向上
-    - カテゴリ順が異なる場合も同一カテゴリとして扱う
+    - 「その他」を含むカテゴリを正規化
+    - 店舗ごとのカテゴリ中央値を算出して比較
+    - 市場参考価格を算出
+    - 参考価格帯を算出
+    - 参考度を比較店舗数＋比較クーポン数から判定
     """
 
-    # カテゴリの基本表示順
     CATEGORY_ORDER = [
         "カット",
         "カラー",
@@ -70,7 +71,7 @@ class PricingAnalyzer:
         self,
         value: Any,
     ) -> str:
-        """比較用文字列を正規化する。"""
+        """文字列を正規化する。"""
 
         if value is None:
             return ""
@@ -88,23 +89,18 @@ class PricingAnalyzer:
         """
         カテゴリ名を比較用に正規化する。
 
-        例：
-
+        例:
         カラー + カット + トリートメント
-        ↓
+        →
         カット + カラー + トリートメント
 
         カット + カラー + トリートメント + その他
-        ↓
+        →
         カット + カラー + トリートメント
 
         カット + その他
-        ↓
+        →
         カット
-
-        その他
-        ↓
-        その他
         """
 
         value = self._clean_value(category)
@@ -112,9 +108,7 @@ class PricingAnalyzer:
         if not value:
             return ""
 
-        # 「+」で構成要素を分割
         parts = value.split("+")
-
         cleaned_parts: List[str] = []
 
         for part in parts:
@@ -123,15 +117,13 @@ class PricingAnalyzer:
             if not part:
                 continue
 
-            # 同じ要素が複数ある場合は1つにする
             if part not in cleaned_parts:
                 cleaned_parts.append(part)
 
         if not cleaned_parts:
             return ""
 
-        # 「その他」は他のカテゴリがある場合は
-        # 比較上のノイズになりやすいため除外
+        # 「その他」が他のカテゴリと一緒なら除外
         if len(cleaned_parts) > 1:
             cleaned_parts = [
                 part
@@ -139,11 +131,9 @@ class PricingAnalyzer:
                 if part != "その他"
             ]
 
-        # その他しか残らなかった場合
         if not cleaned_parts:
             return "その他"
 
-        # 基本カテゴリ順に並べる
         order_map = {
             name: index
             for index, name in enumerate(
@@ -168,11 +158,7 @@ class PricingAnalyzer:
         shop: Any,
         category: str,
     ) -> List[int]:
-        """
-        1店舗について、
-        正規化後の指定カテゴリに該当する
-        有効価格一覧を取得する。
-        """
+        """指定カテゴリに該当する有効価格一覧を取得する。"""
 
         prices: List[int] = []
 
@@ -187,7 +173,6 @@ class PricingAnalyzer:
         )
 
         for coupon in coupons:
-
             coupon_category = self._normalize_category(
                 getattr(
                     coupon,
@@ -222,15 +207,11 @@ class PricingAnalyzer:
         self,
         shops: List[Any],
     ) -> List[str]:
-        """
-        全店舗の実データから、
-        正規化後のカテゴリ一覧を作成する。
-        """
+        """全店舗から正規化後のカテゴリ一覧を取得する。"""
 
         categories = set()
 
         for shop in shops:
-
             coupons = getattr(
                 shop,
                 "coupons",
@@ -238,7 +219,6 @@ class PricingAnalyzer:
             )
 
             for coupon in coupons:
-
                 category = self._normalize_category(
                     getattr(
                         coupon,
@@ -250,7 +230,6 @@ class PricingAnalyzer:
                 if category:
                     categories.add(category)
 
-        # カテゴリの基本順で並べる
         order_map = {
             name: index
             for index, name in enumerate(
@@ -273,7 +252,81 @@ class PricingAnalyzer:
         )
 
     # =========================================================
-    # 価格参考値
+    # 参考度判定
+    # =========================================================
+
+    def _get_reference_level(
+        self,
+        comparison_shop_count: int,
+        comparison_coupon_count: int,
+    ) -> Dict[str, str]:
+        """
+        比較店舗数と比較クーポン数から参考度を判定する。
+
+        基本ルール:
+        - 0店舗 → 比較不可
+        - 1店舗 → 低
+        - 2店舗以上＋3クーポン以上 → 中
+        - 3店舗以上＋6クーポン以上 → 高
+
+        クーポン数が少ない場合は店舗数が多くても
+        参考度を上げすぎない。
+        """
+
+        if comparison_shop_count <= 0:
+            return {
+                "reference_level": "比較不可",
+                "reference_reason": (
+                    "比較対象店舗に有効な価格データがありません"
+                ),
+            }
+
+        if comparison_coupon_count <= 2:
+            return {
+                "reference_level": "低",
+                "reference_reason": (
+                    f"比較店舗は{comparison_shop_count}店舗ありますが、"
+                    f"有効な比較クーポンが"
+                    f"{comparison_coupon_count}件と少ないため"
+                ),
+            }
+
+        if (
+            comparison_shop_count >= 3
+            and comparison_coupon_count >= 6
+        ):
+            return {
+                "reference_level": "高",
+                "reference_reason": (
+                    f"比較店舗{comparison_shop_count}店舗、"
+                    f"比較クーポン{comparison_coupon_count}件を"
+                    "基準に算出"
+                ),
+            }
+
+        if (
+            comparison_shop_count >= 2
+            and comparison_coupon_count >= 3
+        ):
+            return {
+                "reference_level": "中",
+                "reference_reason": (
+                    f"比較店舗{comparison_shop_count}店舗、"
+                    f"比較クーポン{comparison_coupon_count}件を"
+                    "基準に算出"
+                ),
+            }
+
+        return {
+            "reference_level": "低",
+            "reference_reason": (
+                f"比較店舗{comparison_shop_count}店舗を"
+                "基準に算出しているため"
+            ),
+        }
+
+    # =========================================================
+    # 市場参考価格
     # =========================================================
 
     def _recommend_price(
@@ -281,56 +334,68 @@ class PricingAnalyzer:
         shop_median: Optional[float],
         comparison_median: Optional[float],
         comparison_shop_count: int,
+        comparison_coupon_count: int = 0,
     ) -> Dict[str, Any]:
         """
-        比較店舗中央値を基準に参考価格を算出する。
+        比較店舗中央値を市場参考価格として返す。
+
+        「適正価格」と断定せず、
+        市場データ上の参考値として扱う。
         """
+
+        reference_info = self._get_reference_level(
+            comparison_shop_count,
+            comparison_coupon_count,
+        )
 
         if (
             comparison_median is None
             or comparison_shop_count == 0
         ):
             return {
+                # v1.7互換
                 "recommended_price": None,
                 "recommended_min": None,
                 "recommended_max": None,
                 "recommendation_note": (
-                    "比較対象店舗がないため算出不可"
+                    "比較対象店舗がないため市場参考価格を算出できません"
                 ),
+
+                # v1.8
+                "market_reference_price": None,
+                "reference_price_min": None,
+                "reference_price_max": None,
+                **reference_info,
             }
 
         reference_price = self._round_price(
             comparison_median
         )
 
-        recommended_min = self._round_price(
+        reference_min = self._round_price(
             comparison_median * 0.95
         )
 
-        recommended_max = self._round_price(
+        reference_max = self._round_price(
             comparison_median * 1.05
         )
 
-        if comparison_shop_count == 1:
-            note = (
-                "1店舗のみを比較した参考価格"
-            )
-
-        elif comparison_shop_count == 2:
-            note = (
-                "2店舗を比較した参考価格"
-            )
-
-        else:
-            note = (
-                "比較店舗の中央値を基準にした参考価格"
-            )
+        recommendation_note = (
+            "比較店舗別中央値を同じ重みで算出した市場参考価格"
+        )
 
         return {
+            # v1.7互換
             "recommended_price": reference_price,
-            "recommended_min": recommended_min,
-            "recommended_max": recommended_max,
-            "recommendation_note": note,
+            "recommended_min": reference_min,
+            "recommended_max": reference_max,
+            "recommendation_note": recommendation_note,
+
+            # v1.8
+            "market_reference_price": reference_price,
+            "reference_price_min": reference_min,
+            "reference_price_max": reference_max,
+            **reference_info,
         }
 
     # =========================================================
@@ -343,10 +408,7 @@ class PricingAnalyzer:
         comparison_shops: List[Any],
     ) -> Dict[str, Any]:
         """
-        店舗全体の価格ポジションを分析する。
-
-        比較対象は店舗別中央値を
-        同じ重みで比較する。
+        店舗全体のクーポン価格ポジションを分析する。
         """
 
         shop_prices: List[int] = []
@@ -386,7 +448,6 @@ class PricingAnalyzer:
                     prices.append(price)
 
             if prices:
-
                 comparison_coupon_count += len(
                     prices
                 )
@@ -394,6 +455,10 @@ class PricingAnalyzer:
                 comparison_shop_medians.append(
                     float(median(prices))
                 )
+
+        comparison_shop_count = len(
+            comparison_shop_medians
+        )
 
         result: Dict[str, Any] = {
             "shop_name": getattr(
@@ -406,8 +471,9 @@ class PricingAnalyzer:
             ),
             "shop_average": None,
             "shop_median": None,
-            "comparison_shop_count": len(
-                comparison_shop_medians
+
+            "comparison_shop_count": (
+                comparison_shop_count
             ),
             "comparison_coupon_count": (
                 comparison_coupon_count
@@ -417,16 +483,17 @@ class PricingAnalyzer:
             "comparison_shop_medians": (
                 comparison_shop_medians
             ),
+
             "difference": None,
             "ratio": None,
             "position": "比較不可",
+
             "comparison_method": (
                 "店舗別中央値を同じ重みで比較"
             ),
         }
 
         if shop_prices:
-
             result["shop_average"] = round(
                 sum(shop_prices)
                 / len(shop_prices)
@@ -437,7 +504,6 @@ class PricingAnalyzer:
             )
 
         if comparison_shop_medians:
-
             result["comparison_average"] = round(
                 sum(comparison_shop_medians)
                 / len(
@@ -453,10 +519,8 @@ class PricingAnalyzer:
 
         if (
             result["shop_median"] is not None
-            and result["comparison_median"]
-            is not None
+            and result["comparison_median"] is not None
         ):
-
             difference = (
                 result["shop_median"]
                 - result["comparison_median"]
@@ -468,11 +532,7 @@ class PricingAnalyzer:
                 )
             )
 
-            if (
-                result["comparison_median"]
-                != 0
-            ):
-
+            if result["comparison_median"] != 0:
                 result["ratio"] = round(
                     result["shop_median"]
                     / result["comparison_median"]
@@ -483,7 +543,6 @@ class PricingAnalyzer:
             ratio = result["ratio"]
 
             if ratio is not None:
-
                 if ratio < 95:
                     result["position"] = (
                         "中央値より安い"
@@ -499,12 +558,11 @@ class PricingAnalyzer:
                         "中央値付近"
                     )
 
-        recommendation = (
-            self._recommend_price(
-                result["shop_median"],
-                result["comparison_median"],
-                result["comparison_shop_count"],
-            )
+        recommendation = self._recommend_price(
+            result["shop_median"],
+            result["comparison_median"],
+            result["comparison_shop_count"],
+            result["comparison_coupon_count"],
         )
 
         result.update(
@@ -538,25 +596,20 @@ class PricingAnalyzer:
         """
         カテゴリ別の価格ポジションを分析する。
 
-        v1.8ではカテゴリ名を正規化してから
-        比較する。
+        正規化カテゴリごとに、
+        各競合店舗の中央値を算出し、
+        店舗を同じ重みで比較する。
         """
 
         if shops is None:
             shops = []
 
-        # -----------------------------------------------------
-        # 正規化カテゴリ一覧
-        # -----------------------------------------------------
         categories = self._get_all_categories(
             shops
         )
 
         result: Dict[str, Dict[str, Any]] = {}
 
-        # -----------------------------------------------------
-        # カテゴリごとの分析
-        # -----------------------------------------------------
         for category in categories:
 
             shop_prices = (
@@ -573,9 +626,6 @@ class PricingAnalyzer:
                 median(shop_prices)
             )
 
-            # -------------------------------------------------
-            # 比較店舗
-            # -------------------------------------------------
             comparison_shop_medians: List[
                 float
             ] = []
@@ -597,7 +647,6 @@ class PricingAnalyzer:
                 if not other_prices:
                     continue
 
-                # 1店舗につき1つの中央値
                 other_median = float(
                     median(other_prices)
                 )
@@ -614,9 +663,6 @@ class PricingAnalyzer:
                 comparison_shop_medians
             )
 
-            # -------------------------------------------------
-            # 比較店舗統計
-            # -------------------------------------------------
             comparison_average = None
             comparison_median = None
             comparison_min = None
@@ -647,9 +693,6 @@ class PricingAnalyzer:
                     comparison_shop_medians
                 )
 
-            # -------------------------------------------------
-            # 比較結果
-            # -------------------------------------------------
             difference = None
             ratio = None
             position = "比較不可"
@@ -664,7 +707,6 @@ class PricingAnalyzer:
                 )
 
                 if comparison_median != 0:
-
                     ratio = round(
                         shop_median
                         / comparison_median
@@ -689,20 +731,15 @@ class PricingAnalyzer:
                             "中央値付近"
                         )
 
-            # -------------------------------------------------
-            # 参考価格
-            # -------------------------------------------------
             recommendation = (
                 self._recommend_price(
                     shop_median,
                     comparison_median,
                     comparison_shop_count,
+                    comparison_coupon_count,
                 )
             )
 
-            # -------------------------------------------------
-            # 結果
-            # -------------------------------------------------
             result[category] = {
                 "category": category,
 
@@ -746,13 +783,12 @@ class PricingAnalyzer:
                 "ratio": ratio,
                 "position": position,
 
-                # 比較方法
                 "comparison_method": (
-                    "正規化カテゴリ・"
-                    "店舗別中央値を同じ重みで比較"
+                    "正規化カテゴリ・店舗別中央値を"
+                    "同じ重みで比較"
                 ),
 
-                # 参考価格
+                # 市場参考価格＋参考度
                 **recommendation,
             }
 
