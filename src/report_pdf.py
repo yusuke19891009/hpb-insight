@@ -1,4 +1,5 @@
 from __future__ import annotations
+from xml.sax.saxutils import escape
 
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +25,7 @@ from reportlab.platypus import (
 )
 
 
-VERSION = "v2.0.0"
+VERSION = "v2.0.6"
 
 # -------------------------------------------------------------
 # HPBブランドカラー
@@ -55,6 +56,7 @@ def _register_fonts():
 _register_fonts()
 
 FONT = "HeiseiKakuGo-W5"
+FONT_BOLD = "Helvetica-Bold"
 MINCHO = "HeiseiMin-W3"
 
 
@@ -98,6 +100,12 @@ def _safe_text(value: Any) -> str:
 
 
 def _build_styles():
+    """
+    v2.0.2 typography:
+      - Titles / headings / labels: Gothic
+      - Body / explanatory text / table content: Mincho
+      - Main readable text: approximately 10–11pt
+    """
     styles = getSampleStyleSheet()
 
     return {
@@ -113,18 +121,18 @@ def _build_styles():
         "cover_subtitle": ParagraphStyle(
             "CoverSubtitle",
             fontName=FONT,
-            fontSize=13,
-            leading=20,
+            fontSize=19,
+            leading=27,
             textColor=TITLE_COLOR,
             alignment=TA_CENTER,
-            spaceAfter=14 * mm,
+            spaceAfter=12 * mm,
         ),
         "cover_label": ParagraphStyle(
             "CoverLabel",
             fontName=FONT,
-            fontSize=9,
-            leading=13,
-            textColor=MUTED_COLOR,
+            fontSize=10,
+            leading=14,
+            textColor=SUB_COLOR,
             alignment=TA_CENTER,
         ),
         "h1": ParagraphStyle(
@@ -147,83 +155,83 @@ def _build_styles():
         ),
         "body": ParagraphStyle(
             "Body",
-            fontName=FONT,
-            fontSize=9,
-            leading=15,
+            fontName=MINCHO,
+            fontSize=10.5,
+            leading=17,
             textColor=TEXT_COLOR,
-            spaceAfter=2 * mm,
+            spaceAfter=2.5 * mm,
         ),
         "small": ParagraphStyle(
             "Small",
-            fontName=FONT,
-            fontSize=7.5,
-            leading=11,
+            fontName=MINCHO,
+            fontSize=10,
+            leading=15,
             textColor=TEXT_COLOR,
         ),
         "small_muted": ParagraphStyle(
             "SmallMuted",
-            fontName=FONT,
-            fontSize=7,
-            leading=10,
+            fontName=MINCHO,
+            fontSize=9.5,
+            leading=14,
             textColor=MUTED_COLOR,
         ),
         "metric_value": ParagraphStyle(
             "MetricValue",
-            fontName=FONT,
-            fontSize=17,
-            leading=22,
+            fontName=MINCHO,
+            fontSize=16,
+            leading=21,
             textColor=MAIN_COLOR,
             alignment=TA_CENTER,
         ),
         "metric_label": ParagraphStyle(
             "MetricLabel",
             fontName=FONT,
-            fontSize=7.5,
-            leading=10,
+            fontSize=10,
+            leading=13,
             textColor=MUTED_COLOR,
             alignment=TA_CENTER,
         ),
         "table_header": ParagraphStyle(
             "TableHeader",
             fontName=FONT,
-            fontSize=7.5,
-            leading=10,
+            fontSize=10,
+            leading=13,
             textColor=WHITE,
             alignment=TA_CENTER,
         ),
         "table_cell": ParagraphStyle(
             "TableCell",
-            fontName=FONT,
-            fontSize=7,
-            leading=10,
+            fontName=MINCHO,
+            fontSize=10,
+            leading=14,
             textColor=TEXT_COLOR,
         ),
         "table_cell_center": ParagraphStyle(
             "TableCellCenter",
-            fontName=FONT,
-            fontSize=7,
-            leading=10,
+            fontName=MINCHO,
+            fontSize=10,
+            leading=14,
             textColor=TEXT_COLOR,
             alignment=TA_CENTER,
         ),
         "note": ParagraphStyle(
             "Note",
-            fontName=FONT,
-            fontSize=7.5,
-            leading=11,
+            fontName=MINCHO,
+            fontSize=10,
+            leading=15,
             textColor=MUTED_COLOR,
             backColor=LIGHT_BG,
             borderColor=GRID_COLOR,
             borderWidth=0.5,
-            borderPadding=5,
+            borderPadding=6,
             spaceBefore=2 * mm,
             spaceAfter=4 * mm,
         ),
         "candidate": ParagraphStyle(
             "Candidate",
-            fontName=FONT,
-            fontSize=7.2,
-            leading=10.5,
+            fontName=MINCHO,
+            fontSize=10,
+            leading=14,
             textColor=TEXT_COLOR,
         ),
     }
@@ -413,6 +421,18 @@ def _make_table(
 
         converted.append(converted_row)
 
+    # A4本文フレームは左右15mmマージンのため幅180mm。
+    # 指定幅の合計がこれを超える表は比例縮小して右端のはみ出しを防ぐ。
+    available_width = 180 * mm
+    total_width = sum(widths)
+
+    if total_width > available_width:
+        scale = available_width / total_width
+        widths = [
+            width * scale
+            for width in widths
+        ]
+
     table = Table(
         converted,
         colWidths=widths,
@@ -538,89 +558,291 @@ def _candidate_items(
     return items
 
 
+def _split_cover_shop_name(shop_name: str) -> tuple[str, str]:
+    """
+    表紙店舗名を英字ブランド部分と日本語/その他部分に分離する。
+    1行表示を前提とし、英字部分だけゴシック、日本語部分は明朝で描画する。
+    """
+    import re
+
+    text = _safe_text(shop_name).strip()
+
+    # 英字ブランド部分が先頭にあるケースを優先。
+    match = re.match(
+        r"^([A-Za-z][A-Za-z0-9&' .\-]*?)(?=\s*[ぁ-んァ-ヶ一-龯]|[（(])",
+        text,
+    )
+
+    if match:
+        english = match.group(1).strip()
+        japanese = text[match.end():].strip()
+        return english, japanese
+
+    # 先頭が英字だけで終わる名称にも対応。
+    match = re.match(
+        r"^([A-Za-z][A-Za-z0-9&' .\-]+)(?:\s+)(.+)$",
+        text,
+    )
+
+    if match:
+        english = match.group(1).strip()
+        japanese = match.group(2).strip()
+        return english, japanese
+
+    return "", text
+
+
+def _cover_shop_name_paragraph(shop_name: str) -> Paragraph:
+    """
+    店舗名を1行のまま、英字=ゴシック、日本語=明朝で描画する。
+    """
+    english, japanese = _split_cover_shop_name(shop_name)
+
+    # 英字・日本語を同じベースサイズで組み、
+    # 英字だけ太めのゴシックにする。
+    if english:
+        markup = (
+            f'<font name="{FONT_BOLD}">{escape(english)}</font>'
+            f' <font name="{MINCHO}">{escape(japanese)}</font>'
+            ' <font name="HeiseiMin-W3">様</font>'
+        )
+    else:
+        markup = (
+            f'<font name="{MINCHO}">{escape(japanese)}</font>'
+            ' <font name="HeiseiMin-W3">様</font>'
+        )
+
+    style = ParagraphStyle(
+        "CoverShopMixedV206",
+        parent=STYLES["cover_title"],
+        fontName=MINCHO,
+        fontSize=24,
+        leading=31,
+        textColor=MAIN_COLOR,
+        alignment=TA_CENTER,
+        spaceAfter=5 * mm,
+        wordWrap="CJK",
+    )
+
+    return Paragraph(markup, style)
+
+
 def _build_cover(report_data: Dict[str, Any]) -> List[Any]:
+    """
+    v2.0.1 表紙。
+    店舗名を最も大きく表示し、その下に
+    HOTPEPPER Beauty分析レポートを配置する。
+    """
     primary = report_data["primary_shop"]
     summary = primary["summary"]
 
-    story = [
-        Spacer(1, 25 * mm),
-        Paragraph(
-            "ちゃぴおHPB Toolkit",
-            STYLES["cover_title"],
-        ),
-        Paragraph(
-            "自店舗クーポン分析レポート",
-            STYLES["cover_subtitle"],
-        ),
-        Paragraph(
-            "市場参考価格・カテゴリ比較・営業確認候補",
-            STYLES["cover_subtitle"],
-        ),
-        Spacer(1, 5 * mm),
-        Paragraph(
-            "分析対象店舗",
-            STYLES["cover_label"],
-        ),
-        Spacer(1, 2 * mm),
-        Paragraph(
-            _safe_text(summary["name"]),
-            ParagraphStyle(
-                "CoverShop",
-                parent=STYLES["cover_title"],
-                fontSize=18,
-                leading=25,
-            ),
-        ),
-        Spacer(1, 6 * mm),
-        Paragraph(
-            "比較対象店舗",
-            STYLES["cover_label"],
-        ),
-    ]
-
+    shop_name = _safe_text(summary["name"])
     comparison_shops = report_data.get(
         "comparison_shops",
         [],
     )
 
-    if comparison_shops:
-        comparison_names = "<br/>".join(
-            _safe_text(shop["name"])
-            for shop in comparison_shops
-        )
-    else:
-        comparison_names = "なし"
+    comparison_names = [
+        _safe_text(shop["name"])
+        for shop in comparison_shops
+    ]
 
-    story.extend(
-        [
-            Paragraph(
-                comparison_names,
-                ParagraphStyle(
-                    "CoverComparisons",
-                    parent=STYLES["body"],
-                    alignment=TA_CENTER,
-                    fontSize=9,
-                    leading=14,
-                ),
-            ),
-            Spacer(1, 14 * mm),
-            Paragraph(
-                f"作成日時："
-                f"{report_data['created_at'].strftime('%Y年%m月%d日 %H:%M')}",
-                STYLES["cover_label"],
-            ),
-            Paragraph(
-                f"レポートバージョン：{report_data['version']}",
-                STYLES["cover_label"],
-            ),
-            Spacer(1, 14 * mm),
-            _note(
-                "本レポートは「自店舗」を主対象とし、比較対象店舗は市場・参考情報として扱います。"
-                "比較対象店舗そのものを評価することを目的とせず、自店舗の現状把握と価格検討に利用する構成です。"
-            ),
-            PageBreak(),
-        ]
+    # ---------------------------------------------------------
+    # 表紙用の専用スタイル
+    # ---------------------------------------------------------
+    cover_shop_style = ParagraphStyle(
+        "CoverShopNameV201",
+        parent=STYLES["cover_title"],
+        fontName=FONT,
+        fontSize=27,
+        leading=35,
+        textColor=MAIN_COLOR,
+        alignment=TA_CENTER,
+        spaceAfter=5 * mm,
     )
+
+    cover_report_style = ParagraphStyle(
+        "CoverReportTitleV201",
+        parent=STYLES["cover_title"],
+        fontName=FONT,
+        fontSize=20,
+        leading=28,
+        textColor=TITLE_COLOR,
+        alignment=TA_CENTER,
+        spaceAfter=10 * mm,
+    )
+
+    cover_section_label = ParagraphStyle(
+        "CoverSectionLabelV201",
+        fontName=FONT,
+        fontSize=10,
+        leading=14,
+        textColor=SUB_COLOR,
+        alignment=TA_LEFT,
+    )
+
+    cover_shop_cell = ParagraphStyle(
+        "CoverShopCellV201",
+        fontName=MINCHO,
+        fontSize=10.5,
+        leading=16,
+        textColor=TEXT_COLOR,
+        alignment=TA_LEFT,
+    )
+
+    cover_meta = ParagraphStyle(
+        "CoverMetaV201",
+        fontName=MINCHO,
+        fontSize=7.5,
+        leading=11,
+        textColor=MUTED_COLOR,
+        alignment=TA_CENTER,
+    )
+
+    # ---------------------------------------------------------
+    # 店舗情報パネル
+    # ---------------------------------------------------------
+    comparison_text = (
+        "<br/>".join(
+            f"・{name}"
+            for name in comparison_names
+        )
+        if comparison_names
+        else "・比較対象店舗なし"
+    )
+
+    target_table = Table(
+        [
+            [
+                Paragraph(
+                    "分析対象店舗",
+                    cover_section_label,
+                ),
+                Paragraph(
+                    shop_name,
+                    cover_shop_cell,
+                ),
+            ],
+            [
+                Paragraph(
+                    "比較対象店舗",
+                    cover_section_label,
+                ),
+                Paragraph(
+                    comparison_text,
+                    cover_shop_cell,
+                ),
+            ],
+        ],
+        colWidths=[
+            42 * mm,
+            118 * mm,
+        ],
+        hAlign="CENTER",
+    )
+
+    target_table.setStyle(
+        TableStyle(
+            [
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, -1),
+                    colors.HexColor("#FCF8FA"),
+                ),
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.7,
+                    GRID_COLOR,
+                ),
+                (
+                    "INNERGRID",
+                    (0, 0),
+                    (-1, -1),
+                    0.4,
+                    GRID_COLOR,
+                ),
+                (
+                    "VALIGN",
+                    (0, 0),
+                    (-1, -1),
+                    "TOP",
+                ),
+                (
+                    "LEFTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    7,
+                ),
+                (
+                    "RIGHTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    7,
+                ),
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    7,
+                ),
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    7,
+                ),
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (0, -1),
+                    LIGHT_BG,
+                ),
+            ]
+        )
+    )
+
+    story = [
+        Spacer(1, 23 * mm),
+
+        # 主タイトル：店舗名
+        _cover_shop_name_paragraph(shop_name),
+
+        # レポートタイトル
+        Paragraph(
+            "HOTPEPPER Beauty分析レポート",
+            cover_report_style,
+        ),
+
+        Spacer(1, 5 * mm),
+
+        # 対象店舗情報
+        target_table,
+
+        Spacer(1, 14 * mm),
+
+        Paragraph(
+            f"作成日時："
+            f"{report_data['created_at'].strftime('%Y年%m月%d日 %H:%M')}",
+            cover_meta,
+        ),
+        Paragraph(
+            f"レポートバージョン：{report_data['version']}",
+            cover_meta,
+        ),
+
+        Spacer(1, 12 * mm),
+
+        _note(
+            "本レポートは「自店舗」を主対象とし、比較対象店舗は市場・参考情報として扱います。"
+            "比較対象店舗そのものを評価することを目的とせず、"
+            "自店舗の現状把握と価格検討に利用する構成です。"
+        ),
+
+        PageBreak(),
+    ]
 
     return story
 

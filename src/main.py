@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from statistics import median
+
+from urllib.request import Request, urlopen
+from bs4 import BeautifulSoup
 from typing import Any, Dict, List, Optional
 
 from scraper import HotPepperScraper
@@ -10,7 +13,7 @@ from pricing_analysis import PricingAnalyzer
 from report_pdf import generate_pdf_report
 
 
-VERSION = "v2.0.0"
+VERSION = "v2.0.7"
 
 
 def print_separator():
@@ -528,6 +531,10 @@ def main():
         "created_at": datetime.now(),
         "primary_shop": {
             "name": getattr(
+                primary_shop,
+                "display_name",
+                None,
+            ) or getattr(
                 primary_shop,
                 "name",
                 "不明店舗",
