@@ -25,7 +25,7 @@ from reportlab.platypus import (
 )
 
 
-VERSION = "v2.0.6"
+VERSION = "v2.1.0"
 
 # -------------------------------------------------------------
 # HPBブランドカラー
@@ -233,6 +233,29 @@ def _build_styles():
             fontSize=10,
             leading=14,
             textColor=TEXT_COLOR,
+        ),
+        "improvement_title": ParagraphStyle(
+            "ImprovementTitle",
+            fontName=FONT,
+            fontSize=12,
+            leading=17,
+            textColor=MAIN_COLOR,
+            spaceBefore=2 * mm,
+            spaceAfter=2 * mm,
+        ),
+        "improvement_body": ParagraphStyle(
+            "ImprovementBody",
+            fontName=MINCHO,
+            fontSize=10,
+            leading=15,
+            textColor=TEXT_COLOR,
+        ),
+        "improvement_label": ParagraphStyle(
+            "ImprovementLabel",
+            fontName=FONT,
+            fontSize=9.5,
+            leading=13,
+            textColor=SUB_COLOR,
         ),
     }
 
@@ -1379,175 +1402,266 @@ def _build_comparison_characteristics(
 def _build_improvement_section(
     report_data: Dict[str, Any]
 ) -> List[Any]:
+    """
+    v2.1.0 第6章。
+
+    ImprovementAnalyzer が生成した「改善検討候補」をPDFへ整形する。
+    現段階では具体的な変更を断定せず、
+    「分析結果 → 確認ポイント → 次の確認行動」の順で表示する。
+    """
+
     primary = report_data["primary_shop"]
-    pricing = primary["pricing"]
-    rows = primary.get(
-        "category_rows",
-        [],
+    improvement = primary.get("improvement", {})
+
+    proposals = improvement.get("proposals", [])
+    summary = improvement.get(
+        "summary",
+        "改善検討候補を確認してください。",
     )
-    candidates = primary.get(
-        "review_candidates",
-        {},
+    limitations = improvement.get(
+        "limitations",
+        [],
     )
 
     story = [
         _section_title(
-            "6. 自店舗の改善検討ポイント"
+            "6. 自店舗への改善提案"
         ),
         Paragraph(
-            "現時点では、取得データから確認できる価格面の改善検討ポイントを整理します。",
+            "価格分析・カテゴリ比較・価格データ品質分析をもとに、"
+            "自店舗で確認・改善を検討できるポイントを整理します。",
             STYLES["body"],
         ),
+        _note(summary),
     ]
 
-    position = pricing.get(
-        "position",
-        "比較不可",
-    )
-
-    reference = pricing.get(
-        "market_reference_price"
-    )
-
-    if reference is None:
-        reference = pricing.get(
-            "comparison_median"
-        )
-
-    if reference is not None:
-        story.append(
-            _note(
-                f"店舗全体では、自店舗中央値 {_money(pricing.get('shop_median'))} に対して、"
-                f"市場参考価格は {_money(reference)} です。"
-                f"現在の価格ポジションは「{position}」です。"
-            )
-        )
-
-    lower_categories = [
-        row
-        for row in rows
-        if row.get("position") == "中央値より安い"
-        and row.get("market_reference_price") is not None
-    ]
-
-    higher_categories = [
-        row
-        for row in rows
-        if row.get("position") == "中央値より高い"
-        and row.get("market_reference_price") is not None
-    ]
-
-    if lower_categories:
-        story.append(
-            _sub_title(
-                "価格差が確認できるカテゴリ"
-            )
-        )
-
-        data = [
+    if not proposals:
+        story.extend(
             [
-                "カテゴリ",
-                "自店舗中央値",
-                "市場参考",
-                "差額",
-                "参考度",
+                _note(
+                    "今回の分析データから明確な改善検討候補は抽出されませんでした。"
+                    "比較店舗数や価格データの状況によっては、候補が出ない場合があります。"
+                ),
             ]
-        ]
+        )
+    else:
+        for index, proposal in enumerate(proposals, start=1):
+            title = proposal.get(
+                "title",
+                "改善検討候補",
+            )
+            category = proposal.get(
+                "category",
+                "—",
+            )
+            priority = proposal.get(
+                "priority",
+                "確認候補",
+            )
+            reason = proposal.get(
+                "reason",
+                "",
+            )
+            action = proposal.get(
+                "action",
+                "",
+            )
+            coupon_name = proposal.get(
+                "coupon_name",
+                "",
+            )
 
-        for row in lower_categories[:10]:
-            data.append(
+            current_price = proposal.get(
+                "current_price_display",
+                _money(proposal.get("current_price")),
+            )
+            reference_price = proposal.get(
+                "reference_price_display",
+                _money(proposal.get("reference_price")),
+            )
+
+            title_text = f"{index}. {title}"
+
+            story.append(
+                Paragraph(
+                    _safe_text(title_text),
+                    STYLES["improvement_title"],
+                )
+            )
+
+            meta = [
                 [
-                    row["category"],
-                    _money(row["primary_median"]),
-                    _money(row["market_reference_price"]),
-                    _sign_money(row.get("difference")),
-                    row["reference_level"],
+                    "対象",
+                    category,
+                    "区分",
+                    priority,
+                ]
+            ]
+
+            if coupon_name:
+                meta.append(
+                    [
+                        "クーポン",
+                        coupon_name,
+                        "価格",
+                        current_price,
+                    ]
+                )
+            else:
+                meta.append(
+                    [
+                        "自店舗価格",
+                        current_price,
+                        "市場参考",
+                        reference_price,
+                    ]
+                )
+
+            converted = []
+            for row in meta:
+                converted.append(
+                    [
+                        Paragraph(
+                            _safe_text(row[0]),
+                            STYLES["improvement_label"],
+                        ),
+                        Paragraph(
+                            _safe_text(row[1]),
+                            STYLES["improvement_body"],
+                        ),
+                        Paragraph(
+                            _safe_text(row[2]),
+                            STYLES["improvement_label"],
+                        ),
+                        Paragraph(
+                            _safe_text(row[3]),
+                            STYLES["improvement_body"],
+                        ),
+                    ]
+                )
+
+            table = Table(
+                converted,
+                colWidths=[
+                    22 * mm,
+                    68 * mm,
+                    22 * mm,
+                    68 * mm,
+                ],
+                hAlign="LEFT",
+            )
+
+            table.setStyle(
+                TableStyle(
+                    [
+                        (
+                            "GRID",
+                            (0, 0),
+                            (-1, -1),
+                            0.35,
+                            GRID_COLOR,
+                        ),
+                        (
+                            "BACKGROUND",
+                            (0, 0),
+                            (0, -1),
+                            LIGHT_BG,
+                        ),
+                        (
+                            "BACKGROUND",
+                            (2, 0),
+                            (2, -1),
+                            LIGHT_BG,
+                        ),
+                        (
+                            "VALIGN",
+                            (0, 0),
+                            (-1, -1),
+                            "TOP",
+                        ),
+                        (
+                            "LEFTPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            4,
+                        ),
+                        (
+                            "RIGHTPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            4,
+                        ),
+                        (
+                            "TOPPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            4,
+                        ),
+                        (
+                            "BOTTOMPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            4,
+                        ),
+                    ]
+                )
+            )
+
+            story.extend(
+                [
+                    table,
+                    Spacer(1, 2 * mm),
                 ]
             )
 
-        story.append(
-            _make_table(
-                data,
-                [
-                    72 * mm,
-                    30 * mm,
-                    30 * mm,
-                    30 * mm,
-                    23 * mm,
-                ],
-                small=True,
-            )
-        )
-        story.append(Spacer(1, 5 * mm))
+            if reason:
+                story.append(
+                    Paragraph(
+                        f"<b>分析理由：</b>{_safe_text(reason)}",
+                        STYLES["improvement_body"],
+                    )
+                )
 
-    if higher_categories:
+            if action:
+                story.append(
+                    Paragraph(
+                        f"<b>確認ポイント：</b>{_safe_text(action)}",
+                        STYLES["improvement_body"],
+                    )
+                )
+
+            story.append(
+                Spacer(1, 4 * mm)
+            )
+
+    if limitations:
         story.append(
             _sub_title(
-                "市場参考価格を上回っているカテゴリ"
+                "本章の利用上の注意"
             )
         )
 
-        data = [
-            [
-                "カテゴリ",
-                "自店舗中央値",
-                "市場参考",
-                "差額",
-                "参考度",
-            ]
-        ]
-
-        for row in higher_categories[:10]:
-            data.append(
-                [
-                    row["category"],
-                    _money(row["primary_median"]),
-                    _money(row["market_reference_price"]),
-                    _sign_money(row.get("difference")),
-                    row["reference_level"],
-                ]
+        for item in limitations:
+            story.append(
+                Paragraph(
+                    "・" + _safe_text(item),
+                    STYLES["small_muted"],
+                )
             )
-
-        story.append(
-            _make_table(
-                data,
-                [
-                    72 * mm,
-                    30 * mm,
-                    30 * mm,
-                    30 * mm,
-                    23 * mm,
-                ],
-                small=True,
-            )
-        )
-        story.append(Spacer(1, 5 * mm))
-
-    candidate_count = sum(
-        len(value)
-        for value in candidates.values()
-    )
-
-    if candidate_count:
-        story.append(
-            _note(
-                f"価格データ品質分析では営業確認候補が{candidate_count}件抽出されています。"
-                "まずはクーポン内容・利用条件を確認し、価格データそのものの妥当性を確認することが前提です。"
-            )
-        )
 
     story.extend(
         [
+            Spacer(1, 3 * mm),
             _note(
-                "今後のバージョンでは、この章をHPB運用ノウハウの知識ベースとAI分析に接続し、"
-                "『現状 → 根拠 → 改善案 → 掲載文面案』まで一連で出力できる構成へ拡張します。"
+                "今後はHPB運用ノウハウの知識ベースと接続し、"
+                "ここで抽出した確認ポイントを、具体的なクーポン改善・"
+                "掲載内容改善・ページ改善案へ発展させる予定です。"
             ),
             PageBreak(),
         ]
     )
 
     return story
-
 
 def _build_method_section(
     report_data: Dict[str, Any]
@@ -1612,7 +1726,7 @@ def generate_pdf_report(
     output_path: str | Path,
 ) -> Path:
     """
-    v2.0.0 自店舗主役型PDFレポートを生成する。
+    v2.1.0 自店舗主役型PDFレポートを生成する。
 
     Parameters
     ----------
