@@ -1,27 +1,21 @@
-from collections import Counter, defaultdict
 from statistics import mean
-from typing import Any
 
 
 class CouponAnalyzer:
     """
-    クーポン分析エンジン
+    Hot Pepper Beauty クーポン分析エンジン
 
     役割：
-    - クーポン件数集計
-    - 対象別件数・平均価格
-    - カテゴリ別件数・平均価格
-    - 掲載順位情報
-    - 分析結果を辞書形式で返却
-
-    ※ このクラスではCSV保存を行わない。
-      分析と出力を分離することで、将来的なExcel・GUI・AI分析へ
-      拡張しやすい構成にする。
+    - クーポン件数の集計
+    - 対象別集計
+    - カテゴリ別集計
+    - 価格統計
+    - 欠損値・0円データの適切な除外
     """
 
-    def analyze(self, shop) -> dict[str, Any]:
+    def analyze(self, shop):
         """
-        Shopオブジェクトを分析して結果を返す。
+        店舗のクーポンデータを分析する。
         """
 
         coupons = getattr(shop, "coupons", []) or []
@@ -37,105 +31,108 @@ class CouponAnalyzer:
 
         return result
 
-    # =========================================================
+    # ==========================================================
     # 対象別分析
-    # =========================================================
+    # ==========================================================
 
-    def _analyze_target(self, coupons) -> dict[str, Any]:
+    def _analyze_target(self, coupons):
         """
-        新規・再来・全員などの対象別分析。
+        新規・再来・全員などの対象別に集計する。
         """
 
-        counter = Counter()
+        count = {}
+        prices = {}
 
         for coupon in coupons:
+
             target = self._clean_value(
-                getattr(coupon, "target", "")
+                getattr(coupon, "target", None)
             )
 
-            if target:
-                counter[target] += 1
+            if not target:
+                target = "未分類"
 
-        averages = {}
+            count[target] = count.get(target, 0) + 1
 
-        for target in counter:
-            prices = []
+            price = self._get_valid_price(coupon)
 
-            for coupon in coupons:
-                coupon_target = self._clean_value(
-                    getattr(coupon, "target", "")
-                )
+            if price is not None:
+                prices.setdefault(target, []).append(price)
 
-                if coupon_target != target:
-                    continue
+        average_price = {}
 
-                price = self._get_price(coupon)
+        for target, values in prices.items():
 
-                if price is not None:
-                    prices.append(price)
-
-            averages[target] = self._average(prices)
+            if values:
+                average_price[target] = round(mean(values))
 
         return {
-            "count": dict(counter),
-            "average_price": averages,
+            "count": count,
+            "average_price": average_price,
         }
 
-    # =========================================================
-    # カテゴリ分析
-    # =========================================================
+    # ==========================================================
+    # カテゴリ別分析
+    # ==========================================================
 
-    def _analyze_category(self, coupons) -> dict[str, Any]:
+    def _analyze_category(self, coupons):
         """
-        クーポンカテゴリ別分析。
+        クーポンカテゴリ別に集計する。
         """
 
-        counter = Counter()
-        prices_by_category = defaultdict(list)
+        count = {}
+        prices = {}
 
         for coupon in coupons:
+
             category = self._clean_value(
-                getattr(coupon, "category", "")
+                getattr(coupon, "category", None)
             )
 
             if not category:
                 category = "未分類"
 
-            counter[category] += 1
+            count[category] = count.get(category, 0) + 1
 
-            price = self._get_price(coupon)
+            price = self._get_valid_price(coupon)
 
             if price is not None:
-                prices_by_category[category].append(price)
+                prices.setdefault(category, []).append(price)
 
         average_price = {}
 
-        for category, prices in prices_by_category.items():
-            average_price[category] = self._average(prices)
+        for category, values in prices.items():
+
+            if values:
+                average_price[category] = round(mean(values))
 
         return {
-            "count": dict(counter),
+            "count": count,
             "average_price": average_price,
         }
 
-    # =========================================================
-    # 価格分析
-    # =========================================================
+    # ==========================================================
+    # 全体価格分析
+    # ==========================================================
 
-    def _analyze_price(self, coupons) -> dict[str, Any]:
+    def _analyze_price(self, coupons):
         """
-        クーポン価格全体の分析。
+        全クーポンの価格を分析する。
+
+        0円・None・空文字は有効価格として扱わない。
         """
 
         prices = []
 
         for coupon in coupons:
-            price = self._get_price(coupon)
+
+            price = self._get_valid_price(coupon)
 
             if price is not None:
                 prices.append(price)
 
         if not prices:
+
             return {
                 "count": 0,
                 "average": None,
@@ -145,29 +142,36 @@ class CouponAnalyzer:
 
         return {
             "count": len(prices),
-            "average": self._average(prices),
+            "average": round(mean(prices)),
             "minimum": min(prices),
             "maximum": max(prices),
         }
 
-    # =========================================================
-    # 掲載順位分析
-    # =========================================================
+    # ==========================================================
+    # 掲載順分析
+    # ==========================================================
 
-    def _analyze_order(self, coupons) -> dict[str, Any]:
+    def _analyze_order(self, coupons):
         """
-        掲載順位の分析。
+        掲載順の最初・最後を取得する。
         """
 
         orders = []
 
         for coupon in coupons:
+
             order = getattr(coupon, "order", None)
 
-            if isinstance(order, int):
-                orders.append(order)
+            if order is None:
+                continue
+
+            try:
+                orders.append(int(order))
+            except (TypeError, ValueError):
+                continue
 
         if not orders:
+
             return {
                 "first": None,
                 "last": None,
@@ -178,61 +182,69 @@ class CouponAnalyzer:
             "last": max(orders),
         }
 
-    # =========================================================
-    # ユーティリティ
-    # =========================================================
+    # ==========================================================
+    # 価格取得
+    # ==========================================================
 
-    def _get_price(self, coupon):
+    def _get_valid_price(self, coupon):
         """
-        Coupon.priceを安全に数値化する。
+        クーポンから有効な価格だけを取得する。
+
+        以下は無効：
+        - None
+        - 空文字
+        - 0
+        - 数値に変換できない値
         """
 
-        price = getattr(coupon, "price", None)
+        value = getattr(coupon, "price", None)
 
-        if price is None:
+        if value is None:
             return None
 
-        if isinstance(price, int):
-            return price
+        if isinstance(value, str):
 
-        if isinstance(price, float):
-            return int(price)
+            cleaned = value.strip()
 
-        if isinstance(price, str):
+            if not cleaned:
+                return None
+
             cleaned = (
-                price
+                cleaned
                 .replace(",", "")
                 .replace("円", "")
+                .replace("￥", "")
                 .replace("¥", "")
-                .strip()
             )
 
             if not cleaned:
                 return None
 
-            try:
-                return int(float(cleaned))
-            except ValueError:
-                return None
+            value = cleaned
 
-        return None
+        try:
 
-    def _clean_value(self, value) -> str:
+            price = int(float(value))
+
+        except (TypeError, ValueError):
+
+            return None
+
+        if price <= 0:
+            return None
+
+        return price
+
+    # ==========================================================
+    # 文字列整理
+    # ==========================================================
+
+    def _clean_value(self, value):
         """
-        文字列を安全に整形する。
+        分析用の文字列を安全に整形する。
         """
 
         if value is None:
             return ""
 
         return str(value).strip()
-
-    def _average(self, values):
-        """
-        平均値を整数で返す。
-        """
-
-        if not values:
-            return None
-
-        return round(mean(values))
