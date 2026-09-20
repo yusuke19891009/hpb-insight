@@ -3,6 +3,7 @@ from __future__ import annotations
 from scraper import HotPepperScraper
 from pricing_analysis import PricingAnalyzer
 from area_analysis import AreaCouponAnalyzer
+from report_pdf import PDFReportGenerator
 
 
 def print_separator():
@@ -401,224 +402,145 @@ def print_overall_analysis(
 
 
 def main():
-
     print("=" * 70)
-
-    print(
-        "ちゃぴおHPB Toolkit v1.8.1"
-    )
-
-    print(
-        "クーポン価格分析・市場参考価格・営業確認候補分析"
-    )
-
+    print("ちゃぴおHPB Toolkit v1.9.1")
+    print("クーポン価格分析・市場参考価格・営業確認候補分析・PDFレポート")
     print("=" * 70)
 
     scraper = HotPepperScraper()
 
-    print(
-        "\nHotPepper Beautyの店舗URLを入力してください。"
-    )
-
-    print(
-        "複数店舗を入力できます。"
-    )
-
-    print(
-        "入力終了は空Enterです。\n"
-    )
+    print("\nHotPepper Beautyの店舗URLを入力してください。")
+    print("複数店舗を入力できます。")
+    print("入力終了は空Enterです。\n")
 
     urls = []
 
     while True:
-
         url = input("URL: ").strip()
-
         if not url:
             break
-
         urls.append(url)
 
     if not urls:
-
-        print(
-            "\nURLが入力されていません。"
-        )
-
+        print("\nURLが入力されていません。")
         return
 
     print("\n" + "=" * 70)
-
-    print(
-        f"{len(urls)}店舗のデータ取得を開始します。"
-    )
-
+    print(f"{len(urls)}店舗のデータ取得を開始します。")
     print("=" * 70)
 
     shops = []
 
-    for index, url in enumerate(
-        urls,
-        start=1,
-    ):
-
+    for index, url in enumerate(urls, start=1):
         print("\n" + "-" * 70)
-
-        print(
-            f"[{index}/{len(urls)}] "
-            "店舗データ取得中..."
-        )
+        print(f"[{index}/{len(urls)}] 店舗データ取得中...")
 
         try:
-
-            shop = scraper.scrape(
-                url
-            )
+            shop = scraper.scrape(url)
 
             if shop is None:
-
-                print(
-                    "店舗データを取得できませんでした。"
-                )
-
+                print("店舗データを取得できませんでした。")
                 continue
 
-            shops.append(
-                shop
-            )
+            shops.append(shop)
 
-            print(
-                f"取得完了: "
-                f"{getattr(shop, 'name', '不明')}"
-            )
-
-            print(
-                f"クーポン数: "
-                f"{len(getattr(shop, 'coupons', []))}"
-            )
+            print(f"取得完了: {getattr(shop, 'name', '不明')}")
+            print(f"クーポン数: {len(getattr(shop, 'coupons', []))}")
 
         except Exception as e:
-
-            print(
-                "取得中にエラーが発生しました: "
-                f"{e}"
-            )
+            print(f"取得中にエラーが発生しました: {e}")
 
     if not shops:
-
-        print(
-            "\n店舗データを取得できませんでした。"
-        )
-
+        print("\n店舗データを取得できませんでした。")
         return
 
     # =========================================================
     # エリア分析
     # =========================================================
-
     try:
-
-        area_analyzer = (
-            AreaCouponAnalyzer()
-        )
-
-        area_analysis = (
-            area_analyzer.analyze(
-                shops
-            )
-        )
-
+        area_analyzer = AreaCouponAnalyzer()
+        area_analysis = area_analyzer.analyze(shops)
     except Exception as e:
-
-        print(
-            "\nエリア分析でエラーが発生しました: "
-            f"{e}"
-        )
-
+        print(f"\nエリア分析でエラーが発生しました: {e}")
         return
 
     # =========================================================
     # 価格分析
     # =========================================================
-
-    pricing_analyzer = (
-        PricingAnalyzer()
-    )
+    pricing_analyzer = PricingAnalyzer()
+    analysis_reports = []
 
     for shop in shops:
-
-        shop_name = getattr(
-            shop,
-            "name",
-            "不明店舗",
-        )
+        shop_name = getattr(shop, "name", "不明店舗")
+        coupons = getattr(shop, "coupons", [])
 
         print_separator()
+        print(f"########## {shop_name} ##########")
 
-        print(
-            f"########## {shop_name} ##########"
-        )
+        pricing_result = None
+        category_analysis = {}
 
         # -----------------------------------------------------
         # 全体価格分析
         # -----------------------------------------------------
-
         try:
-
-            pricing_result = (
-                pricing_analyzer
-                .analyze_summary(
-                    shop,
-                    shops,
-                )
+            pricing_result = pricing_analyzer.analyze_summary(
+                shop,
+                shops,
             )
-
             print_overall_analysis(
                 shop_name,
                 pricing_result,
             )
-
         except Exception as e:
-
-            print(
-                "\n全体価格分析エラー: "
-                f"{e}"
-            )
+            print(f"\n全体価格分析エラー: {e}")
 
         # -----------------------------------------------------
         # カテゴリ別価格分析
         # -----------------------------------------------------
-
         try:
-
-            category_analysis = (
-                pricing_analyzer
-                .analyze_category_summary(
-                    shop,
-                    area_analysis,
-                    shops,
-                )
+            category_analysis = pricing_analyzer.analyze_category_summary(
+                shop,
+                area_analysis,
+                shops,
             )
-
             print_category_analysis(
                 shop_name,
                 category_analysis,
             )
-
         except Exception as e:
+            print(f"\nカテゴリ別価格分析エラー: {e}")
 
-            print(
-                "\nカテゴリ別価格分析エラー: "
-                f"{e}"
+        if pricing_result is not None:
+            analysis_reports.append({
+                "shop": shop,
+                "shop_name": shop_name,
+                "coupon_count": len(coupons),
+                "pricing_result": pricing_result,
+                "category_analysis": category_analysis,
+            })
+
+    # =========================================================
+    # PDFレポート生成 v1.9.1
+    # =========================================================
+    if analysis_reports:
+        try:
+            pdf_generator = PDFReportGenerator()
+            pdf_path = pdf_generator.generate(
+                analysis_reports=analysis_reports,
+                shop_count=len(shops),
             )
 
+            print_separator()
+            print("PDFレポートを生成しました。")
+            print(f"保存先: {pdf_path}")
+        except Exception as e:
+            print_separator()
+            print(f"PDFレポート生成エラー: {e}")
+            print("分析結果自体は正常に完了しています。")
+
     print_separator()
-
-    print(
-        "分析が完了しました。"
-    )
-
-    print("=" * 70)
+    print("分析が完了しました。")
 
 
 if __name__ == "__main__":
