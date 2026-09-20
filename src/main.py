@@ -1,470 +1,262 @@
-from shop_service import ShopService
-from analysis import CouponAnalyzer
-from area_analysis import AreaCouponAnalyzer
+from __future__ import annotations
+
+from scraper import HotPepperScraper
 from pricing_analysis import PricingAnalyzer
+from area_analysis import AreaCouponAnalyzer
 
 
-def print_analysis_result(result):
-    print("=" * 60)
-    print("分析結果")
-    print("=" * 60)
+def print_separator():
+    print("\n" + "=" * 70)
 
-    if result is None:
-        print("分析結果がありません。")
-        print("=" * 60)
+
+def print_category_analysis(
+    shop_name: str,
+    category_analysis: dict,
+):
+    print_separator()
+    print(f"【{shop_name}】カテゴリ別価格分析")
+
+    if not category_analysis:
+        print("カテゴリ別価格分析データがありません。")
         return
 
-    if isinstance(result, dict):
-        for key, value in result.items():
-
-            if isinstance(value, dict):
-                print()
-                print(f"【{key}】")
-
-                for sub_key, sub_value in value.items():
-                    print(f"{sub_key}：{sub_value}")
-
-            elif isinstance(value, list):
-                print()
-                print(f"【{key}】")
-
-                for item in value:
-                    print(f"- {item}")
-
-            else:
-                print(f"{key}：{value}")
-
-        print("=" * 60)
-        return
-
-    if isinstance(result, list):
-
-        for item in result:
-            print(item)
-
-        print("=" * 60)
-        return
-
-    if hasattr(result, "__dict__"):
-
-        data = vars(result)
-
-        for key, value in data.items():
-
-            if isinstance(value, dict):
-                print()
-                print(f"【{key}】")
-
-                for sub_key, sub_value in value.items():
-                    print(f"{sub_key}：{sub_value}")
-
-            elif isinstance(value, list):
-                print()
-                print(f"【{key}】")
-
-                for item in value:
-                    print(f"- {item}")
-
-            else:
-                print(f"{key}：{value}")
-
-        print("=" * 60)
-        return
-
-    print(result)
-    print("=" * 60)
-
-
-def print_area_analysis_result(result):
-    print()
-    print("=" * 60)
-    print("エリア分析結果")
-    print("=" * 60)
-
-    if result is None:
-        print("エリア分析結果がありません。")
-        print("=" * 60)
-        return
-
-    shops = result.get("shops", {})
-
-    print()
-    print("【shops】")
-    print(f"shop_count：{shops.get('shop_count')}")
-    print(f"coupon_count：{shops.get('coupon_count')}")
-
-    category = result.get("category", {})
-
-    print()
-    print("【category】")
-
-    print(f"count：{category.get('count')}")
-    print(f"shop_count：{category.get('shop_count')}")
-    print(f"price_stats：{category.get('price_stats')}")
-
-    target = result.get("target", {})
-
-    print()
-    print("【target】")
-
-    print(f"count：{target.get('count')}")
-    print(f"shop_count：{target.get('shop_count')}")
-    print(f"price_stats：{target.get('price_stats')}")
-
-    price = result.get("price", {})
-
-    print()
-    print("【price】")
-
-    print(f"count：{price.get('count')}")
-    print(f"average：{price.get('average')}")
-    print(f"median：{price.get('median')}")
-    print(f"minimum：{price.get('minimum')}")
-    print(f"maximum：{price.get('maximum')}")
-
-    print("=" * 60)
-
-
-def print_pricing_summary(result):
-    print()
-    print("=" * 60)
-    print("価格ポジション分析")
-    print("=" * 60)
-
-    if result is None:
-        print("価格分析結果がありません。")
-        print("=" * 60)
-        return
-
-    print()
-    print(f"【店舗】{result.get('shop')}")
-
-    print(
-        f"有効価格クーポン数："
-        f"{result.get('coupon_count')}件"
-    )
-
-    print()
-    print("【自店舗価格】")
-
-    shop_average = result.get("shop_average")
-    shop_median = result.get("shop_median")
-
-    if shop_average is not None:
-        print(f"平均価格：{round(shop_average)}円")
-    else:
-        print("平均価格：判定不可")
-
-    if shop_median is not None:
-        print(f"中央値：{round(shop_median)}円")
-    else:
-        print("中央値：判定不可")
-
-    print()
-    print("【エリア価格】")
-
-    area_average = result.get("area_average")
-    area_median = result.get("area_median")
-
-    if area_average is not None:
-        print(f"平均価格：{round(area_average)}円")
-    else:
-        print("平均価格：判定不可")
-
-    if area_median is not None:
-        print(f"中央値：{round(area_median)}円")
-    else:
-        print("中央値：判定不可")
-
-    print()
-    print("【市場内ポジション】")
-
-    difference = result.get(
-        "difference_from_area_median"
-    )
-
-    ratio = result.get(
-        "price_ratio_to_area_median"
-    )
-
-    position = result.get("position")
-
-    if difference is not None:
-
-        if difference > 0:
-            difference_text = f"+{difference}円"
-        else:
-            difference_text = f"{difference}円"
+    for category, data in category_analysis.items():
+        print("\n" + "-" * 60)
+        print(f"【{category}】")
 
         print(
-            f"エリア平均との差額："
-            f"{difference_text}"
+            f"自店舗クーポン数: "
+            f"{data.get('shop_coupon_count', 0)}"
         )
 
-    else:
-        print("エリア平均との差額：判定不可")
-
-    if ratio is not None:
-        print(
-            f"中央値に対する価格比率："
-            f"{ratio}%"
-        )
-    else:
-        print(
-            "中央値に対する価格比率："
-            "判定不可"
-        )
-
-    print(
-        f"価格ポジション："
-        f"{position}"
-    )
-
-    print("=" * 60)
-
-
-def print_category_pricing_result(result):
-    """
-    カテゴリ別価格ポジションを表示する。
-    """
-
-    print()
-    print("=" * 60)
-    print("カテゴリ別価格ポジション分析")
-    print("=" * 60)
-
-    if result is None:
-        print("カテゴリ分析結果がありません。")
-        print("=" * 60)
-        return
-
-    shop_name = result.get(
-        "shop",
-        ""
-    )
-
-    categories = result.get(
-        "categories",
-        []
-    )
-
-    print()
-    print(f"【店舗】{shop_name}")
-
-    print(
-        f"分析カテゴリ数："
-        f"{len(categories)}"
-    )
-
-    if not categories:
-        print()
-        print("分析可能なカテゴリがありません。")
-        print("=" * 60)
-        return
-
-    for item in categories:
-
-        print()
-        print("-" * 60)
-
-        print(
-            f"【{item.get('category')}】"
-        )
-
-        print(
-            f"クーポン数："
-            f"{item.get('coupon_count')}件"
-        )
-
-        print()
-        print("自店舗価格")
-
-        shop_average = item.get(
-            "shop_average"
-        )
-
-        shop_median = item.get(
-            "shop_median"
-        )
+        shop_average = data.get("shop_average")
+        shop_median = data.get("shop_median")
 
         if shop_average is not None:
-            print(
-                f"平均："
-                f"{round(shop_average)}円"
-            )
-        else:
-            print("平均：判定不可")
+            print(f"自店舗平均: {shop_average:,.0f}円")
 
         if shop_median is not None:
-            print(
-                f"中央値："
-                f"{round(shop_median)}円"
-            )
-        else:
-            print("中央値：判定不可")
+            print(f"自店舗中央値: {shop_median:,.0f}円")
 
-        print()
-        print("同カテゴリ比較")
-
-        comparison_shop_count = item.get(
-            "comparison_shop_count",
-            0
+        comparison_shop_count = data.get(
+            "comparison_shop_count", 0
         )
 
-        comparison_coupon_count = item.get(
-            "comparison_coupon_count",
-            0
+        comparison_coupon_count = data.get(
+            "comparison_coupon_count", 0
         )
 
         print(
-            f"比較対象店舗数："
-            f"{comparison_shop_count}店舗"
+            f"比較対象店舗数: "
+            f"{comparison_shop_count}"
         )
 
         print(
-            f"比較対象クーポン数："
-            f"{comparison_coupon_count}件"
+            f"比較対象クーポン数: "
+            f"{comparison_coupon_count}"
         )
 
-        comparison_average = item.get(
+        comparison_average = data.get(
             "comparison_average"
-        )
-
-        comparison_median = item.get(
-            "comparison_median"
         )
 
         if comparison_average is not None:
             print(
-                f"比較平均："
-                f"{round(comparison_average)}円"
+                f"比較店舗平均"
+                f"（店舗中央値ベース）: "
+                f"{comparison_average:,.0f}円"
             )
-        else:
-            print("比較平均：なし")
+
+        comparison_median = data.get(
+            "comparison_median"
+        )
 
         if comparison_median is not None:
             print(
-                f"比較中央値："
-                f"{round(comparison_median)}円"
+                f"比較店舗中央値: "
+                f"{comparison_median:,.0f}円"
             )
-        else:
-            print("比較中央値：なし")
 
-        print()
-        print("市場内ポジション")
-
-        difference = item.get(
-            "difference_from_comparison_median"
-        )
-
-        ratio = item.get(
-            "price_ratio_to_comparison_median"
-        )
-
-        position = item.get(
-            "position"
-        )
+        difference = data.get("difference")
 
         if difference is not None:
-
-            if difference > 0:
-                difference_text = (
-                    f"+{difference}円"
-                )
-            else:
-                difference_text = (
-                    f"{difference}円"
-                )
-
+            sign = "+" if difference > 0 else ""
             print(
-                f"比較中央値との差額："
-                f"{difference_text}"
+                f"比較店舗中央値との差: "
+                f"{sign}{difference:,.0f}円"
             )
 
-        else:
-            print(
-                "比較中央値との差額："
-                "比較対象なし"
-            )
+        ratio = data.get("ratio")
 
         if ratio is not None:
-            print(
-                f"比較中央値に対する価格比率："
-                f"{ratio}%"
-            )
-        else:
-            print(
-                "比較中央値に対する価格比率："
-                "比較対象なし"
-            )
+            print(f"価格比率: {ratio:.1f}%")
 
         print(
-            f"価格ポジション："
-            f"{position}"
+            f"価格ポジション: "
+            f"{data.get('position', '比較不可')}"
         )
 
-        print()
-        print("参考：エリア全体")
-
-        area_average = item.get(
-            "area_average"
+        comparison_method = data.get(
+            "comparison_method"
         )
 
-        area_median = item.get(
-            "area_median"
+        if comparison_method:
+            print(
+                f"比較方法: "
+                f"{comparison_method}"
+            )
+
+        recommended_price = data.get(
+            "recommended_price"
         )
 
-        if area_average is not None:
+        recommended_min = data.get(
+            "recommended_min"
+        )
+
+        recommended_max = data.get(
+            "recommended_max"
+        )
+
+        recommendation_note = data.get(
+            "recommendation_note"
+        )
+
+        if recommended_price is not None:
             print(
-                f"エリア全体平均："
-                f"{round(area_average)}円"
-            )
-        else:
-            print(
-                "エリア全体平均：なし"
+                f"適正価格参考値: "
+                f"{recommended_price:,.0f}円"
             )
 
-        if area_median is not None:
+            if (
+                recommended_min is not None
+                and recommended_max is not None
+            ):
+                print(
+                    f"参考価格帯: "
+                    f"{recommended_min:,.0f}"
+                    f"～"
+                    f"{recommended_max:,.0f}円"
+                )
+
+        if recommendation_note:
             print(
-                f"エリア全体中央値："
-                f"{round(area_median)}円"
-            )
-        else:
-            print(
-                "エリア全体中央値：なし"
+                f"参考情報: "
+                f"{recommendation_note}"
             )
 
-    print()
-    print("=" * 60)
+
+def print_overall_analysis(
+    shop_name: str,
+    pricing_result: dict,
+):
+    print_separator()
+    print(f"【{shop_name}】全体価格分析")
+
+    print(
+        f"自店舗価格データ数: "
+        f"{pricing_result.get('shop_price_count', 0)}"
+    )
+
+    shop_average = pricing_result.get("shop_average")
+
+    if shop_average is not None:
+        print(
+            f"自店舗平均: "
+            f"{shop_average:,.0f}円"
+        )
+
+    shop_median = pricing_result.get("shop_median")
+
+    if shop_median is not None:
+        print(
+            f"自店舗中央値: "
+            f"{shop_median:,.0f}円"
+        )
+
+    comparison_shop_count = pricing_result.get(
+        "comparison_shop_count", 0
+    )
+
+    comparison_coupon_count = pricing_result.get(
+        "comparison_coupon_count", 0
+    )
+
+    print(
+        f"比較対象店舗数: "
+        f"{comparison_shop_count}"
+    )
+
+    print(
+        f"比較対象クーポン数: "
+        f"{comparison_coupon_count}"
+    )
+
+    comparison_average = pricing_result.get(
+        "comparison_average"
+    )
+
+    if comparison_average is not None:
+        print(
+            f"比較店舗平均"
+            f"（店舗中央値ベース）: "
+            f"{comparison_average:,.0f}円"
+        )
+
+    comparison_median = pricing_result.get(
+        "comparison_median"
+    )
+
+    if comparison_median is not None:
+        print(
+            f"比較店舗中央値: "
+            f"{comparison_median:,.0f}円"
+        )
+
+    difference = pricing_result.get("difference")
+
+    if difference is not None:
+        sign = "+" if difference > 0 else ""
+        print(
+            f"比較店舗中央値との差: "
+            f"{sign}{difference:,.0f}円"
+        )
+
+    ratio = pricing_result.get("ratio")
+
+    if ratio is not None:
+        print(
+            f"価格比率: "
+            f"{ratio:.1f}%"
+        )
+
+    print(
+        f"価格ポジション: "
+        f"{pricing_result.get('position', '比較不可')}"
+    )
+
+    print(
+        f"比較方法: "
+        f"{pricing_result.get('comparison_method', '')}"
+    )
 
 
 def main():
+    print("=" * 70)
+    print("ちゃぴおHPB Toolkit v1.7.1")
+    print("クーポン価格分析・店舗別中央値比較")
+    print("=" * 70)
 
-    print("=" * 60)
-    print("HPB Insight")
-    print("v1.6.0")
-    print("=" * 60)
+    scraper = HotPepperScraper()
 
-    print(
-        "HotPepper URLを入力してください。"
-    )
-
-    print(
-        "複数取得する場合は、"
-        "1店舗ずつ入力してください。"
-    )
-
-    print(
-        "空行で入力を終了します。"
-    )
-
-    print("=" * 60)
+    print("\nHotPepper Beautyの店舗URLを入力してください。")
+    print("複数店舗を入力できます。")
+    print("入力終了は空Enterです。\n")
 
     urls = []
 
     while True:
-
-        url = input("> ").strip()
+        url = input("URL: ").strip()
 
         if not url:
             break
@@ -472,325 +264,122 @@ def main():
         urls.append(url)
 
     if not urls:
-
-        print(
-            "URLが入力されていません。"
-        )
-
+        print("\nURLが入力されていません。")
         return
 
-    service = ShopService()
-    analyzer = CouponAnalyzer()
-    area_analyzer = AreaCouponAnalyzer()
-    pricing_analyzer = PricingAnalyzer()
+    print("\n" + "=" * 70)
+    print(f"{len(urls)}店舗のデータ取得を開始します。")
+    print("=" * 70)
 
     shops = []
 
-    print()
-    print("=" * 60)
-    print(
-        f"{len(urls)}店舗の取得を開始します"
-    )
-    print("=" * 60)
-
-    # =========================================================
-    # 店舗ごとのスクレイピング
-    # =========================================================
-
-    for index, url in enumerate(
-        urls,
-        start=1
-    ):
-
-        print()
-        print("=" * 60)
+    for index, url in enumerate(urls, start=1):
+        print("\n" + "-" * 70)
         print(
-            f"{index} / {len(urls)} 店舗取得開始"
+            f"[{index}/{len(urls)}] 店舗データ取得中..."
         )
-        print("=" * 60)
 
         try:
+            # 元々動いていた正しい取得方法
+            shop = scraper.scrape(url)
 
-            shop = service.scrape(url)
+            if shop is None:
+                print("店舗データを取得できませんでした。")
+                continue
 
             shops.append(shop)
 
-            print()
-            print("=" * 60)
-            print("取得結果")
-            print("=" * 60)
-
             print(
-                f"店舗名：{shop.name}"
+                f"取得完了: "
+                f"{getattr(shop, 'name', '不明')}"
             )
 
             print(
-                f"取得件数："
-                f"{len(shop.coupons)}件"
+                f"クーポン数: "
+                f"{len(getattr(shop, 'coupons', []))}"
             )
-
-            print("=" * 60)
-
-            service.export(shop)
-
-        except KeyboardInterrupt:
-
-            print()
-            print(
-                "処理を中断しました。"
-            )
-
-            return
 
         except Exception as e:
-
-            print()
-            print("=" * 60)
             print(
-                "スクレイピング中に"
-                "エラーが発生しました"
+                f"取得中にエラーが発生しました: {e}"
             )
-            print("=" * 60)
 
-            print(type(e).__name__)
-            print(e)
+    if not shops:
+        print("\n店舗データを取得できませんでした。")
+        return
 
-            print("=" * 60)
+    # ---------------------------------------------------------
+    # エリア分析
+    # ---------------------------------------------------------
+    try:
+        area_analyzer = AreaCouponAnalyzer()
+        area_analysis = area_analyzer.analyze(shops)
+    except Exception as e:
+        print(
+            f"\nエリア分析でエラーが発生しました: {e}"
+        )
+        return
 
-    # =========================================================
-    # スクレイピング全体結果
-    # =========================================================
-
-    print()
-    print("=" * 60)
-    print("スクレイピング処理完了")
-    print("=" * 60)
-
-    print(
-        f"取得店舗数：{len(shops)}"
-    )
-
-    total_coupons = sum(
-        len(shop.coupons)
-        for shop in shops
-    )
-
-    print(
-        f"総クーポン数："
-        f"{total_coupons}"
-    )
-
-    print("=" * 60)
-
-    # =========================================================
-    # 店舗別分析
-    # =========================================================
-
-    print()
-    print("=" * 60)
-    print("店舗別分析エンジン起動")
-    print("=" * 60)
+    # ---------------------------------------------------------
+    # 価格分析
+    # ---------------------------------------------------------
+    pricing_analyzer = PricingAnalyzer()
 
     for shop in shops:
-
-        print()
-        print("-" * 60)
-        print(
-            f"【分析対象】"
-            f"{shop.name}"
+        shop_name = getattr(
+            shop,
+            "name",
+            "不明店舗",
         )
-        print("-" * 60)
 
+        print_separator()
+        print(
+            f"########## {shop_name} ##########"
+        )
+
+        # 全体価格分析
         try:
+            pricing_result = (
+                pricing_analyzer.analyze_summary(
+                    shop,
+                    shops,
+                )
+            )
 
-            result = analyzer.analyze(shop)
-
-            print_analysis_result(
-                result
+            print_overall_analysis(
+                shop_name,
+                pricing_result,
             )
 
         except Exception as e:
-
-            print()
-            print("=" * 60)
             print(
-                "分析中に"
-                "エラーが発生しました"
+                f"\n全体価格分析エラー: {e}"
             )
-            print("=" * 60)
 
-            print(type(e).__name__)
-            print(e)
-
-            print("=" * 60)
-
-    # =========================================================
-    # エリア分析
-    # =========================================================
-
-    area_result = None
-
-    if shops:
-
-        print()
-        print("=" * 60)
-        print("エリア分析エンジン起動")
-        print("=" * 60)
-
+        # カテゴリ別価格分析
         try:
-
-            area_result = (
-                area_analyzer.analyze(
-                    shops
+            category_analysis = (
+                pricing_analyzer
+                .analyze_category_summary(
+                    shop,
+                    area_analysis,
+                    shops,
                 )
             )
 
-            print_area_analysis_result(
-                area_result
+            print_category_analysis(
+                shop_name,
+                category_analysis,
             )
 
         except Exception as e:
-
-            print()
-            print("=" * 60)
             print(
-                "エリア分析中に"
-                "エラーが発生しました"
+                f"\nカテゴリ別価格分析エラー: {e}"
             )
-            print("=" * 60)
 
-            print(type(e).__name__)
-            print(e)
-
-            print("=" * 60)
-
-    # =========================================================
-    # 価格ポジション分析
-    # =========================================================
-
-    if shops and area_result:
-
-        print()
-        print("=" * 60)
-        print(
-            "価格ポジション分析"
-            "エンジン起動"
-        )
-        print("=" * 60)
-
-        for shop in shops:
-
-            print()
-            print("-" * 60)
-            print(
-                f"【分析対象】"
-                f"{shop.name}"
-            )
-            print("-" * 60)
-
-            try:
-
-                pricing_result = (
-                    pricing_analyzer
-                    .analyze_summary(
-                        shop,
-                        area_result
-                    )
-                )
-
-                print_pricing_summary(
-                    pricing_result
-                )
-
-            except Exception as e:
-
-                print()
-                print("=" * 60)
-                print(
-                    "価格ポジション分析中に"
-                    "エラーが発生しました"
-                )
-                print("=" * 60)
-
-                print(type(e).__name__)
-                print(e)
-
-                print("=" * 60)
-
-    # =========================================================
-    # カテゴリ別価格ポジション分析
-    # =========================================================
-
-    if shops and area_result:
-
-        print()
-        print("=" * 60)
-        print(
-            "カテゴリ別価格ポジション"
-            "分析エンジン起動"
-        )
-        print("=" * 60)
-
-        for shop in shops:
-
-            print()
-            print("-" * 60)
-            print(
-                f"【分析対象】"
-                f"{shop.name}"
-            )
-            print("-" * 60)
-
-            try:
-
-                category_result = (
-                    pricing_analyzer
-                    .analyze_category_summary(
-                        shop,
-                        area_result,
-                        shops
-                    )
-                )
-
-                print_category_pricing_result(
-                    category_result
-                )
-
-            except Exception as e:
-
-                print()
-                print("=" * 60)
-                print(
-                    "カテゴリ別価格分析中に"
-                    "エラーが発生しました"
-                )
-                print("=" * 60)
-
-                print(type(e).__name__)
-                print(e)
-
-                print("=" * 60)
-
-    # =========================================================
-    # 全処理完了
-    # =========================================================
-
-    print()
-    print("=" * 60)
-    print("全処理完了")
-    print("=" * 60)
-
-    print(
-        f"取得店舗数："
-        f"{len(shops)}"
-    )
-
-    print(
-        f"総クーポン数："
-        f"{total_coupons}"
-    )
-
-    print("=" * 60)
+    print_separator()
+    print("分析が完了しました。")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
