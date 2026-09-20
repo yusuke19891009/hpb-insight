@@ -64,6 +64,84 @@ def print_reference_info(data: dict):
         )
 
 
+def print_price_quality(data: dict):
+    """v1.8.2 価格データ品質と営業確認候補を表示する。"""
+    quality = data.get("price_quality", {})
+    print("\n--- 価格データ品質 ---")
+    print(f"品質判定: {quality.get('quality_status', '判定対象外')}")
+    print(f"有効価格データ数: {quality.get('valid_price_count', 0)}")
+
+    outlier_count = quality.get("outlier_count", 0)
+    print(f"統計的外れ値候補: {outlier_count}件")
+    if outlier_count:
+        print(f"  低価格候補: {quality.get('low_outlier_count', 0)}件")
+        print(f"  高価格候補: {quality.get('high_outlier_count', 0)}件")
+
+    q1, q3 = quality.get("q1"), quality.get("q3")
+    iqr = quality.get("iqr")
+    lower, upper = quality.get("lower_bound"), quality.get("upper_bound")
+    if q1 is not None and q3 is not None and iqr is not None:
+        print(f"  店舗全体Q1: {q1:,.0f}円")
+        print(f"  店舗全体Q3: {q3:,.0f}円")
+        print(f"  店舗全体IQR: {iqr:,.0f}円")
+        print(f"  判定下限: {lower:,.0f}円")
+        print(f"  判定上限: {upper:,.0f}円")
+
+    outliers = quality.get("outliers", [])
+    if outliers:
+        print("\n【営業確認候補：店舗全体の統計的外れ値】")
+        for i, item in enumerate(outliers, 1):
+            print(f"  [{i}] {item.get('price'):,.0f}円 ({item.get('direction', '')})")
+            if item.get("coupon_name"): print(f"      クーポン: {item['coupon_name']}")
+            if item.get("category"): print(f"      カテゴリ: {item['category']}")
+            print(f"      判定: {item.get('reason', '')}")
+
+    category_outliers = quality.get("category_outliers", [])
+    print(f"\n【営業確認候補：カテゴリ別統計的外れ値】 {len(category_outliers)}件")
+    for i, item in enumerate(category_outliers, 1):
+        print(f"  [{i}] {item.get('price'):,.0f}円 ({item.get('direction', '')})")
+        if item.get("coupon_name"): print(f"      クーポン: {item['coupon_name']}")
+        if item.get("category"): print(f"      カテゴリ: {item['category']}")
+        print(f"      判定: {item.get('reason', '')}")
+
+    low_attention = quality.get("low_price_attention", [])
+    high_attention = quality.get("high_price_attention", [])
+    print(f"\n【営業確認候補：低価格要確認】 {len(low_attention)}件")
+    for i, item in enumerate(low_attention, 1):
+        print(f"  [{i}] {item.get('price'):,.0f}円")
+        if item.get("coupon_name"): print(f"      クーポン: {item['coupon_name']}")
+        if item.get("category"): print(f"      カテゴリ: {item['category']}")
+        print(f"      判定: {item.get('reason', '要確認')}")
+
+    print(f"\n【営業確認候補：高価格要確認】 {len(high_attention)}件")
+    for i, item in enumerate(high_attention, 1):
+        print(f"  [{i}] {item.get('price'):,.0f}円")
+        if item.get("coupon_name"): print(f"      クーポン: {item['coupon_name']}")
+        if item.get("category"): print(f"      カテゴリ: {item['category']}")
+        print(f"      判定: {item.get('reason', '要確認')}")
+
+    print("\n--- 判定方法 ---")
+    print("  ・統計的外れ値 → 店舗全体IQR × 1.5")
+    print("  ・カテゴリ別外れ値 → カテゴリIQR × 1.5")
+    print("  ・低価格要確認 → 3,000円以下")
+    print("  ・高価格要確認 → 30,000円以上")
+    print("  ※要確認・外れ値候補は価格計算から除外しません")
+
+    category_quality = quality.get("category_quality", {})
+    skipped = [c for c, info in category_quality.items() if info.get("valid_price_count", 0) < 4]
+    if skipped:
+        print("\nカテゴリ別IQR判定対象外:")
+        print("  " + "、".join(skipped) + "（有効価格4件未満）")
+
+    reason = quality.get("quality_reason", "")
+    if reason:
+        print(f"\n総合判定理由: {reason}")
+
+    if outliers or category_outliers or low_attention or high_attention:
+        print("\n※「営業確認候補」は、価格の統計・閾値から機械的に抽出したものです。")
+        print("  クーポン名・価格・カテゴリを確認し、利用条件やメニュー内容を踏まえて営業判断してください。")
+
+
 def print_category_analysis(
     shop_name: str,
     category_analysis: dict,
@@ -307,6 +385,14 @@ def print_overall_analysis(
         f"{pricing_result.get('comparison_method', '')}"
     )
 
+    # ---------------------------------------------------------
+    # v1.8.1 価格データ品質
+    # ---------------------------------------------------------
+
+    print_price_quality(
+        pricing_result
+    )
+
     print("\n--- 市場参考価格 ---")
 
     print_reference_info(
@@ -317,12 +403,15 @@ def print_overall_analysis(
 def main():
 
     print("=" * 70)
+
     print(
-        "ちゃぴおHPB Toolkit v1.8.0"
+        "ちゃぴおHPB Toolkit v1.8.1"
     )
+
     print(
-        "クーポン価格分析・市場参考価格・参考度分析"
+        "クーポン価格分析・市場参考価格・営業確認候補分析"
     )
+
     print("=" * 70)
 
     scraper = HotPepperScraper()
@@ -351,9 +440,11 @@ def main():
         urls.append(url)
 
     if not urls:
+
         print(
             "\nURLが入力されていません。"
         )
+
         return
 
     print("\n" + "=" * 70)
