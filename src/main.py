@@ -1,6 +1,7 @@
 from shop_service import ShopService
 from analysis import CouponAnalyzer
 from area_analysis import AreaCouponAnalyzer
+from pricing_analysis import PricingAnalyzer
 
 
 def print_analysis_result(result):
@@ -120,10 +121,63 @@ def print_area_analysis_result(result):
     print("=" * 60)
 
 
+def print_pricing_summary(result):
+    print()
+    print("=" * 60)
+    print("価格ポジション分析")
+    print("=" * 60)
+
+    if result is None:
+        print("価格分析結果がありません。")
+        print("=" * 60)
+        return
+
+    print()
+    print(f"【店舗】{result.get('shop')}")
+
+    print(f"有効価格クーポン数：{result.get('coupon_count')}件")
+
+    print()
+    print("【自店舗価格】")
+    print(f"平均価格：{result.get('shop_average')}円")
+    print(f"中央値：{result.get('shop_median')}円")
+
+    print()
+    print("【エリア価格】")
+    print(f"平均価格：{result.get('area_average')}円")
+    print(f"中央値：{result.get('area_median')}円")
+
+    print()
+    print("【市場内ポジション】")
+
+    difference = result.get("difference_from_area_median")
+    ratio = result.get("price_ratio_to_area_median")
+    position = result.get("position")
+
+    if difference is not None:
+        if difference > 0:
+            difference_text = f"+{difference}円"
+        else:
+            difference_text = f"{difference}円"
+
+        print(f"エリア中央値との差額：{difference_text}")
+    else:
+        print("エリア中央値との差額：判定不可")
+
+    if ratio is not None:
+        print(f"中央値に対する価格比率：{ratio}%")
+    else:
+        print("中央値に対する価格比率：判定不可")
+
+    print(f"価格ポジション：{position}")
+
+    print("=" * 60)
+
+
 def main():
     print("=" * 60)
     print("HPB Insight")
-    print("v1.4.0")
+    print("v1.5.0")
     print("=" * 60)
 
     print("HotPepper URLを入力してください。")
@@ -149,6 +203,7 @@ def main():
     service = ShopService()
     analyzer = CouponAnalyzer()
     area_analyzer = AreaCouponAnalyzer()
+    pricing_analyzer = PricingAnalyzer()
 
     shops = []
 
@@ -257,6 +312,8 @@ def main():
     # エリア分析
     # =========================================================
 
+    area_result = None
+
     if shops:
 
         print()
@@ -279,6 +336,43 @@ def main():
             print(e)
 
             print("=" * 60)
+
+    # =========================================================
+    # 価格ポジション分析
+    # =========================================================
+
+    if shops and area_result:
+
+        print()
+        print("=" * 60)
+        print("価格ポジション分析エンジン起動")
+        print("=" * 60)
+
+        for shop in shops:
+
+            print()
+            print("-" * 60)
+            print(f"【分析対象】{shop.name}")
+            print("-" * 60)
+
+            try:
+                pricing_result = pricing_analyzer.analyze_summary(
+                    shop,
+                    area_result
+                )
+
+                print_pricing_summary(pricing_result)
+
+            except Exception as e:
+                print()
+                print("=" * 60)
+                print("価格ポジション分析中にエラーが発生しました")
+                print("=" * 60)
+
+                print(type(e).__name__)
+                print(e)
+
+                print("=" * 60)
 
     # =========================================================
     # 全処理完了
