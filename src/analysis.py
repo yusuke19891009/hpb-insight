@@ -1,404 +1,238 @@
-from __future__ import annotations
-
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
 from statistics import mean
 from typing import Any
 
 
-@dataclass
-class AnalysisResult:
+class CouponAnalyzer:
     """
-    クーポン分析結果を保持するデータクラス。
+    クーポン分析エンジン
 
-    将来的にExcel出力・AIレポート・競合比較などへ
-    発展させることを想定した共通データ構造。
-    """
+    役割：
+    - クーポン件数集計
+    - 対象別件数・平均価格
+    - カテゴリ別件数・平均価格
+    - 掲載順位情報
+    - 分析結果を辞書形式で返却
 
-    total_coupons: int = 0
-
-    category_count: dict[str, int] = field(default_factory=dict)
-    category_average_price: dict[str, float] = field(default_factory=dict)
-
-    target_count: dict[str, int] = field(default_factory=dict)
-    target_average_price: dict[str, float] = field(default_factory=dict)
-
-
-class AnalysisEngine:
-    """
-    HPBクーポン分析エンジン。
-
-    現段階では以下を分析する。
-
-    ・総クーポン数
-    ・カテゴリ別件数
-    ・カテゴリ別平均価格
-    ・対象別件数
-    ・対象別平均価格
-
-    通常価格・販売価格・割引率は使用しない。
+    ※ このクラスではCSV保存を行わない。
+      分析と出力を分離することで、将来的なExcel・GUI・AI分析へ
+      拡張しやすい構成にする。
     """
 
-    def analyze(self, shop: Any) -> AnalysisResult:
+    def analyze(self, shop) -> dict[str, Any]:
         """
-        Shopオブジェクトを分析してAnalysisResultを返す。
+        Shopオブジェクトを分析して結果を返す。
         """
 
-        coupons = getattr(shop, "coupons", None) or []
+        coupons = getattr(shop, "coupons", []) or []
 
-        result = AnalysisResult()
-
-        result.total_coupons = len(coupons)
-
-        result.category_count = self._count_by_category(coupons)
-
-        result.category_average_price = self._average_price_by_category(
-            coupons
-        )
-
-        result.target_count = self._count_by_target(coupons)
-
-        result.target_average_price = self._average_price_by_target(
-            coupons
-        )
+        result = {
+            "shop_name": getattr(shop, "name", ""),
+            "coupon_count": len(coupons),
+            "target": self._analyze_target(coupons),
+            "category": self._analyze_category(coupons),
+            "price": self._analyze_price(coupons),
+            "order": self._analyze_order(coupons),
+        }
 
         return result
 
-    # ==========================================================
-    # カテゴリ別件数
-    # ==========================================================
+    # =========================================================
+    # 対象別分析
+    # =========================================================
 
-    def _count_by_category(
-        self,
-        coupons: list[Any],
-    ) -> dict[str, int]:
+    def _analyze_target(self, coupons) -> dict[str, Any]:
+        """
+        新規・再来・全員などの対象別分析。
+        """
 
-        counter: Counter[str] = Counter()
+        counter = Counter()
 
         for coupon in coupons:
+            target = self._clean_value(
+                getattr(coupon, "target", "")
+            )
 
-            category = self._get_category(coupon)
+            if target:
+                counter[target] += 1
+
+        averages = {}
+
+        for target in counter:
+            prices = []
+
+            for coupon in coupons:
+                coupon_target = self._clean_value(
+                    getattr(coupon, "target", "")
+                )
+
+                if coupon_target != target:
+                    continue
+
+                price = self._get_price(coupon)
+
+                if price is not None:
+                    prices.append(price)
+
+            averages[target] = self._average(prices)
+
+        return {
+            "count": dict(counter),
+            "average_price": averages,
+        }
+
+    # =========================================================
+    # カテゴリ分析
+    # =========================================================
+
+    def _analyze_category(self, coupons) -> dict[str, Any]:
+        """
+        クーポンカテゴリ別分析。
+        """
+
+        counter = Counter()
+        prices_by_category = defaultdict(list)
+
+        for coupon in coupons:
+            category = self._clean_value(
+                getattr(coupon, "category", "")
+            )
 
             if not category:
                 category = "未分類"
 
             counter[category] += 1
 
-        return dict(counter)
-
-    # ==========================================================
-    # カテゴリ別平均価格
-    # ==========================================================
-
-    def _average_price_by_category(
-        self,
-        coupons: list[Any],
-    ) -> dict[str, float]:
-
-        prices: dict[str, list[int]] = defaultdict(list)
-
-        for coupon in coupons:
-
-            category = self._get_category(coupon)
-
-            if not category:
-                category = "未分類"
-
             price = self._get_price(coupon)
 
-            if price is None:
-                continue
+            if price is not None:
+                prices_by_category[category].append(price)
 
-            prices[category].append(price)
+        average_price = {}
 
-        result: dict[str, float] = {}
+        for category, prices in prices_by_category.items():
+            average_price[category] = self._average(prices)
 
-        for category, values in prices.items():
+        return {
+            "count": dict(counter),
+            "average_price": average_price,
+        }
 
-            if not values:
-                continue
+    # =========================================================
+    # 価格分析
+    # =========================================================
 
-            result[category] = round(mean(values), 0)
+    def _analyze_price(self, coupons) -> dict[str, Any]:
+        """
+        クーポン価格全体の分析。
+        """
 
-        return result
-
-    # ==========================================================
-    # 対象別件数
-    # ==========================================================
-
-    def _count_by_target(
-        self,
-        coupons: list[Any],
-    ) -> dict[str, int]:
-
-        counter: Counter[str] = Counter()
+        prices = []
 
         for coupon in coupons:
-
-            target = self._get_target(coupon)
-
-            if not target:
-                target = "未設定"
-
-            counter[target] += 1
-
-        return dict(counter)
-
-    # ==========================================================
-    # 対象別平均価格
-    # ==========================================================
-
-    def _average_price_by_target(
-        self,
-        coupons: list[Any],
-    ) -> dict[str, float]:
-
-        prices: dict[str, list[int]] = defaultdict(list)
-
-        for coupon in coupons:
-
-            target = self._get_target(coupon)
-
-            if not target:
-                target = "未設定"
-
             price = self._get_price(coupon)
 
-            if price is None:
-                continue
+            if price is not None:
+                prices.append(price)
 
-            prices[target].append(price)
+        if not prices:
+            return {
+                "count": 0,
+                "average": None,
+                "minimum": None,
+                "maximum": None,
+            }
 
-        result: dict[str, float] = {}
+        return {
+            "count": len(prices),
+            "average": self._average(prices),
+            "minimum": min(prices),
+            "maximum": max(prices),
+        }
 
-        for target, values in prices.items():
+    # =========================================================
+    # 掲載順位分析
+    # =========================================================
 
-            if not values:
-                continue
+    def _analyze_order(self, coupons) -> dict[str, Any]:
+        """
+        掲載順位の分析。
+        """
 
-            result[target] = round(mean(values), 0)
+        orders = []
 
-        return result
+        for coupon in coupons:
+            order = getattr(coupon, "order", None)
 
-    # ==========================================================
-    # Couponからカテゴリを取得
-    # ==========================================================
+            if isinstance(order, int):
+                orders.append(order)
 
-    @staticmethod
-    def _get_category(
-        coupon: Any,
-    ) -> str:
+        if not orders:
+            return {
+                "first": None,
+                "last": None,
+            }
 
-        value = getattr(
-            coupon,
-            "category",
-            None,
-        )
+        return {
+            "first": min(orders),
+            "last": max(orders),
+        }
 
-        if value is None:
-            value = getattr(
-                coupon,
-                "coupon_category",
-                None,
-            )
+    # =========================================================
+    # ユーティリティ
+    # =========================================================
 
-        if value is None:
-            return ""
+    def _get_price(self, coupon):
+        """
+        Coupon.priceを安全に数値化する。
+        """
 
-        return str(value).strip()
+        price = getattr(coupon, "price", None)
 
-    # ==========================================================
-    # Couponから対象を取得
-    # ==========================================================
-
-    @staticmethod
-    def _get_target(
-        coupon: Any,
-    ) -> str:
-
-        value = getattr(
-            coupon,
-            "target",
-            None,
-        )
-
-        if value is None:
-            value = getattr(
-                coupon,
-                "target_type",
-                None,
-            )
-
-        if value is None:
-            return ""
-
-        return str(value).strip()
-
-    # ==========================================================
-    # Couponから価格を取得
-    # ==========================================================
-
-    @staticmethod
-    def _get_price(
-        coupon: Any,
-    ) -> int | None:
-
-        value = getattr(
-            coupon,
-            "price",
-            None,
-        )
-
-        if value is None:
+        if price is None:
             return None
 
-        if isinstance(value, bool):
-            return None
+        if isinstance(price, int):
+            return price
 
-        if isinstance(value, int):
-            return value
+        if isinstance(price, float):
+            return int(price)
 
-        if isinstance(value, float):
-            return int(value)
-
-        try:
-
-            text = str(value).strip()
-
-            if not text:
-                return None
-
-            # 「7,000円」などにも対応
-            text = (
-                text
+        if isinstance(price, str):
+            cleaned = (
+                price
                 .replace(",", "")
                 .replace("円", "")
+                .replace("¥", "")
                 .strip()
             )
 
-            return int(float(text))
+            if not cleaned:
+                return None
 
-        except (ValueError, TypeError):
+            try:
+                return int(float(cleaned))
+            except ValueError:
+                return None
 
+        return None
+
+    def _clean_value(self, value) -> str:
+        """
+        文字列を安全に整形する。
+        """
+
+        if value is None:
+            return ""
+
+        return str(value).strip()
+
+    def _average(self, values):
+        """
+        平均値を整数で返す。
+        """
+
+        if not values:
             return None
 
-    # ==========================================================
-    # 分析結果をコンソール表示
-    # ==========================================================
-
-    def print_result(
-        self,
-        result: AnalysisResult,
-    ) -> None:
-
-        print("")
-        print("=" * 60)
-        print("分析結果")
-        print("=" * 60)
-
-        print("")
-        print(f"総クーポン数：{result.total_coupons}件")
-
-        print("")
-        print("【カテゴリ別件数】")
-
-        if result.category_count:
-
-            for category, count in result.category_count.items():
-
-                print(
-                    f"{category}：{count}件"
-                )
-
-        else:
-
-            print("データなし")
-
-        print("")
-        print("【カテゴリ別平均価格】")
-
-        if result.category_average_price:
-
-            for category, price in result.category_average_price.items():
-
-                print(
-                    f"{category}：{price:,.0f}円"
-                )
-
-        else:
-
-            print("データなし")
-
-        print("")
-        print("【対象別件数】")
-
-        if result.target_count:
-
-            for target, count in result.target_count.items():
-
-                print(
-                    f"{target}：{count}件"
-                )
-
-        else:
-
-            print("データなし")
-
-        print("")
-        print("【対象別平均価格】")
-
-        if result.target_average_price:
-
-            for target, price in result.target_average_price.items():
-
-                print(
-                    f"{target}：{price:,.0f}円"
-                )
-
-        else:
-
-            print("データなし")
-
-        print("")
-        print("=" * 60)
-
-
-# ==============================================================
-# 単体テスト用
-# ==============================================================
-
-if __name__ == "__main__":
-
-    from types import SimpleNamespace
-
-    test_shop = SimpleNamespace(
-        coupons=[
-            SimpleNamespace(
-                category="カット",
-                target="新規",
-                price=4000,
-            ),
-            SimpleNamespace(
-                category="カット",
-                target="再来",
-                price=4500,
-            ),
-            SimpleNamespace(
-                category="カラー",
-                target="新規",
-                price=7000,
-            ),
-            SimpleNamespace(
-                category="カラー",
-                target="全員",
-                price=8000,
-            ),
-        ]
-    )
-
-    engine = AnalysisEngine()
-
-    result = engine.analyze(test_shop)
-
-    engine.print_result(result)
-    
+        return round(mean(values))
