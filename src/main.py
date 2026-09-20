@@ -11,9 +11,11 @@ from typing import Any, Dict, List, Optional
 from scraper import HotPepperScraper
 from pricing_analysis import PricingAnalyzer
 from report_pdf import generate_pdf_report
+from hpb_quantitative_analysis import HPBDetailReportParser, QuantitativeAnalyzer, OptionalAIAnalyzer
+from improvement_analysis import ImprovementAnalyzer
 
 
-VERSION = "v2.0.7"
+VERSION = "v2.2.0"
 
 
 def print_separator():
@@ -353,7 +355,7 @@ def main():
     print(f"ちゃぴおHPB Toolkit {VERSION}")
     print(
         "自店舗を主役にしたクーポン価格分析・市場参考価格・"
-        "営業確認候補・PDFレポート"
+        "営業確認候補・自店舗定量分析・PDFレポート"
     )
     print("=" * 70)
 
@@ -383,6 +385,17 @@ def main():
             break
 
         comparison_urls.append(url)
+
+    print(
+        "\n【3】自店舗のHPB詳細レポートPDFを指定してください。"
+    )
+    print(
+        "エクスプローラーからPDFファイルをこの画面へドラッグ＆ドロップできます。"
+    )
+    print(
+        "PDFを使用しない場合は空Enterで進められます。\n"
+    )
+    quantitative_pdf_path = input("自店舗詳細レポートPDF: ").strip().strip('\"')
 
     print_separator()
     print("店舗データの取得を開始します。")
@@ -483,6 +496,109 @@ def main():
         pricing_result
     )
 
+    # ---------------------------------------------------------
+    # 第6章：自店舗への改善検討候補
+    # ---------------------------------------------------------
+    improvement_analyzer = ImprovementAnalyzer()
+
+    try:
+        improvement_result = improvement_analyzer.analyze(
+            primary_shop=primary_shop,
+            pricing_result=pricing_result,
+            category_analysis=category_analysis,
+        )
+    except Exception as e:
+        print(f"\n改善提案分析でエラーが発生しました: {e}")
+        improvement_result = {
+            "version": "v2.1.0",
+            "shop_name": getattr(primary_shop, "name", "不明店舗"),
+            "chapter_title": "6. 自店舗への改善提案",
+            "proposal_count": 0,
+            "proposals": [],
+            "summary": "改善提案分析を実行できませんでした。",
+            "limitations": [
+                "改善提案分析でエラーが発生したため、この章は参考対象外です。"
+            ],
+        }
+
+    # ---------------------------------------------------------
+    # 第7章：自店舗HPB詳細レポートの定量分析
+    # ---------------------------------------------------------
+    quantitative_result = None
+
+    if quantitative_pdf_path:
+        print_separator()
+        print("【自店舗HPB詳細レポート】解析中...")
+        print("-" * 70)
+
+        try:
+            parser = HPBDetailReportParser()
+            metrics = parser.parse(quantitative_pdf_path)
+            base_analysis = QuantitativeAnalyzer().analyze(metrics)
+            ai_analysis = OptionalAIAnalyzer().analyze(
+                metrics,
+                base_analysis,
+            )
+
+            quantitative_result = {
+                "source_file": metrics.get("source_file"),
+                "page_count": metrics.get("page_count"),
+                "metrics": metrics,
+                "analysis": base_analysis,
+                "ai_analysis": ai_analysis,
+            }
+
+            print(
+                f"解析完了: {metrics.get('source_file', 'PDF')} / "
+                f"{metrics.get('page_count', '—')}ページ"
+            )
+            print(base_analysis.get("summary", ""))
+
+            if ai_analysis and ai_analysis.get("text"):
+                print("AIによる補足分析も取得しました。")
+            elif ai_analysis and ai_analysis.get("error"):
+                print("AI分析はエラーのためスキップし、定量分析コメントを使用します。")
+            else:
+                print("AI API未接続のため、定量分析コメントを使用します。")
+
+        except Exception as e:
+            print(f"HPB詳細レポートの解析に失敗しました: {e}")
+            print("PDFなしとして価格分析レポートを続行します。")
+
+    else:
+        print_separator()
+        print("HPB詳細レポートPDFは指定されていません。")
+        print("第7章の自店舗定量分析はスキップします。")
+
+    print_separator()
+    print("【自店舗への改善検討候補】")
+    print("-" * 70)
+    print(improvement_result.get("summary", ""))
+
+    proposals = improvement_result.get("proposals", [])
+
+    if not proposals:
+        print("今回の価格分析データから、明確な改善検討候補はありません。")
+    else:
+        for index, proposal in enumerate(proposals, start=1):
+            print(
+                f"{index}. {proposal.get('title', '改善検討候補')} "
+                f"/ {proposal.get('category', '—')}"
+            )
+            print(f"   理由: {proposal.get('reason', '')}")
+
+            if proposal.get("coupon_name"):
+                print(
+                    f"   クーポン: {proposal.get('coupon_name')} "
+                    f"/ 価格: {proposal.get('current_price_display', '—')}"
+                )
+
+            if proposal.get("reference_price_display") not in (None, "—"):
+                print(
+                    f"   自店舗価格: {proposal.get('current_price_display', '—')} "
+                    f"/ 市場参考: {proposal.get('reference_price_display', '—')}"
+                )
+
     print_primary_summary(
         primary_shop,
         pricing_result,
@@ -545,6 +661,8 @@ def main():
             "category_analysis": category_analysis,
             "category_rows": category_rows,
             "review_candidates": review_candidates,
+            "improvement": improvement_result,
+            "quantitative": quantitative_result,
         },
         "comparison_shops": comparison_rows,
         "comparison_urls": comparison_urls,
