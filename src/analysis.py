@@ -5,31 +5,62 @@ class CouponAnalyzer:
     """
     Hot Pepper Beauty クーポン分析エンジン
 
-    役割：
-    - クーポン件数の集計
-    - 対象別集計
-    - カテゴリ別集計
-    - 価格統計
-    - 欠損値・0円データの適切な除外
+    分析結果を以下の構造で返す。
+
+    {
+        "shop": {
+            "name": 店舗名,
+            "coupon_count": クーポン総数
+        },
+        "target": {
+            "count": 対象別件数,
+            "average_price": 対象別平均価格
+        },
+        "category": {
+            "count": カテゴリ別件数,
+            "average_price": カテゴリ別平均価格
+        },
+        "price": {
+            "count": 有効価格件数,
+            "average": 平均価格,
+            "minimum": 最低価格,
+            "maximum": 最高価格
+        },
+        "order": {
+            "first": 最上位掲載順位,
+            "last": 最下位掲載順位
+        }
+    }
+
+    ※ 価格0円・欠損値は価格分析から除外する。
     """
+
+    # ==========================================================
+    # メイン分析
+    # ==========================================================
 
     def analyze(self, shop):
         """
-        店舗のクーポンデータを分析する。
+        Shopオブジェクトを分析し、
+        構造化された分析結果を返す。
         """
 
         coupons = getattr(shop, "coupons", []) or []
 
-        result = {
-            "shop_name": getattr(shop, "name", ""),
-            "coupon_count": len(coupons),
+        return {
+            "shop": {
+                "name": getattr(shop, "name", ""),
+                "coupon_count": len(coupons),
+            },
+
             "target": self._analyze_target(coupons),
+
             "category": self._analyze_category(coupons),
+
             "price": self._analyze_price(coupons),
+
             "order": self._analyze_order(coupons),
         }
-
-        return result
 
     # ==========================================================
     # 対象別分析
@@ -37,7 +68,7 @@ class CouponAnalyzer:
 
     def _analyze_target(self, coupons):
         """
-        新規・再来・全員などの対象別に集計する。
+        新規・再来・全員・未分類などの対象別分析。
         """
 
         count = {}
@@ -77,7 +108,7 @@ class CouponAnalyzer:
 
     def _analyze_category(self, coupons):
         """
-        クーポンカテゴリ別に集計する。
+        クーポンカテゴリ別分析。
         """
 
         count = {}
@@ -117,9 +148,9 @@ class CouponAnalyzer:
 
     def _analyze_price(self, coupons):
         """
-        全クーポンの価格を分析する。
+        全クーポンの価格分析。
 
-        0円・None・空文字は有効価格として扱わない。
+        0円・None・空文字などは除外する。
         """
 
         prices = []
@@ -148,12 +179,12 @@ class CouponAnalyzer:
         }
 
     # ==========================================================
-    # 掲載順分析
+    # 掲載順位分析
     # ==========================================================
 
     def _analyze_order(self, coupons):
         """
-        掲載順の最初・最後を取得する。
+        クーポン掲載順位を分析する。
         """
 
         orders = []
@@ -167,6 +198,7 @@ class CouponAnalyzer:
 
             try:
                 orders.append(int(order))
+
             except (TypeError, ValueError):
                 continue
 
@@ -183,18 +215,19 @@ class CouponAnalyzer:
         }
 
     # ==========================================================
-    # 価格取得
+    # 有効価格取得
     # ==========================================================
 
     def _get_valid_price(self, coupon):
         """
-        クーポンから有効な価格だけを取得する。
+        クーポンから有効な価格を取得する。
 
-        以下は無効：
+        除外対象：
         - None
         - 空文字
         - 0
-        - 数値に変換できない値
+        - マイナス値
+        - 数値変換できない値
         """
 
         value = getattr(coupon, "price", None)
@@ -204,23 +237,21 @@ class CouponAnalyzer:
 
         if isinstance(value, str):
 
-            cleaned = value.strip()
+            value = value.strip()
 
-            if not cleaned:
+            if not value:
                 return None
 
-            cleaned = (
-                cleaned
+            value = (
+                value
                 .replace(",", "")
                 .replace("円", "")
                 .replace("￥", "")
                 .replace("¥", "")
             )
 
-            if not cleaned:
+            if not value:
                 return None
-
-            value = cleaned
 
         try:
 
@@ -241,7 +272,7 @@ class CouponAnalyzer:
 
     def _clean_value(self, value):
         """
-        分析用の文字列を安全に整形する。
+        分析用の文字列を安全に整理する。
         """
 
         if value is None:
