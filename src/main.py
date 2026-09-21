@@ -11,7 +11,7 @@ from hpb_quantitative_analysis import HPBDetailReportParser, QuantitativeAnalyze
 from improvement_analysis import ImprovementAnalyzer
 from integrated_analysis import IntegratedAnalyzer
 
-VERSION="v2.4.1"
+VERSION="v2.5.0"
 
 def print_separator(): print("\n"+"="*70)
 
@@ -116,7 +116,7 @@ def main():
             metrics=HPBDetailReportParser().parse(pdf_path); base=QuantitativeAnalyzer().analyze(metrics); ai=OptionalAIAnalyzer().analyze(metrics,base); quantitative={"source_file":metrics.get("source_file"),"page_count":metrics.get("page_count"),"metrics":metrics,"analysis":base,"ai_analysis":ai}; print(f"解析完了: {metrics.get('source_file','PDF')} / {metrics.get('page_count','—')}ページ"); print(base.get("summary",""))
         except Exception as e: print(f"HPB詳細レポートの解析に失敗しました: {e}"); print("PDFなしとして価格分析を続行します。")
     else: print_separator(); print("HPB詳細レポートPDFは指定されていません。")
-    print_separator(); print("【v2.4.1 総合分析】")
+    print_separator(); print("【v2.5.0 総合分析】")
     try: integrated=IntegratedAnalyzer().analyze(primary,pricing,cats,candidates,improvement,quantitative); print(integrated.get("summary","総合分析が完了しました。"))
     except Exception as e: print(f"総合分析でエラーが発生しました: {e}"); integrated={"version":VERSION,"shop_name":getattr(primary,"name","自店舗"),"summary":"総合分析を実行できませんでした。","overall":[],"price":[],"category":[],"quality":[],"quantitative":[],"cross_analysis":[],"check_points":[],"source_status":{}}
     report_data={"version":VERSION,"created_at":datetime.now(),"primary_shop":{"name":getattr(primary,"display_name",None) or getattr(primary,"name","不明店舗"),"url":primary_url,"summary":primary_summary,"pricing":pricing,"category_analysis":cats,"category_rows":category_rows,"review_candidates":candidates,"improvement":improvement,"quantitative":quantitative,"integrated":integrated},"comparison_shops":comparison_rows,"comparison_urls":comparison_urls,"integrated":integrated,"notes":["本レポートは自店舗を主対象として、比較対象店舗を市場・参考情報として扱います。","市場参考価格は比較店舗ごとの価格中央値を同じ重みで比較して算出しています。","市場参考価格は100円単位に統一して表示しています。","営業確認候補は機械的な統計・価格閾値による候補抽出であり、異常価格と断定するものではありません。","第6章は第4章の確認候補を再掲するのではなく、改善を検討するための候補として整理しています。","クーポンの内容・利用条件・対象者条件などは営業担当者による確認を前提とします。","数字だけから原因を断定せず、掲載内容・クーポン内容・予約状況などと合わせて確認します。"]}
